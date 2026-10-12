@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browse Bikes – CampusCycle</title>
+  <meta name="description" content="Browse available bicycles and station availability on campus." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <style>
+    .bikes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+    .station-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 0 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .station-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<!-- ── Navbar ─────────────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="container">
+    <a href="{{ url_for('index') }}" class="navbar-brand">
+      <div class="logo-icon">🚲</div>
+      CampusCycle
+    </a>
+    <div class="navbar-links">
+      <a href="{{ url_for('student_dashboard', student_id=student_id) }}" class="nav-link">
+        <span>🏠</span> <span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="nav-link active">
+        <span>🚲</span> <span>Browse</span>
+      </a>
+      <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="nav-link">
+        <span>🔔</span> <span>My Rentals</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Flash Messages ─────────────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-wrap">
+      {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+  <div class="container section">
+
+    <!-- Page Header -->
+    <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
+      <div>
+        <h1>Browse Bikes 🗺️</h1>
+        <p>Real-time availability across all campus stations.</p>
+      </div>
+      <!-- Type Filter Tabs -->
+      <div class="filter-tabs">
+        <a href="{{ url_for('student_bikes', student_id=student_id, type='all') }}"
+           class="filter-tab {% if type_filter == 'all' %}active{% endif %}">All Types</a>
+        <a href="{{ url_for('student_bikes', student_id=student_id, type='standard') }}"
+           class="filter-tab {% if type_filter == 'standard' %}active{% endif %}">🚲 Standard</a>
+        <a href="{{ url_for('student_bikes', student_id=student_id, type='electric') }}"
+           class="filter-tab {% if type_filter == 'electric' %}active{% endif %}">⚡ Electric</a>
+        <a href="{{ url_for('student_bikes', student_id=student_id, type='mountain') }}"
+           class="filter-tab {% if type_filter == 'mountain' %}active{% endif %}">🏔 Mountain</a>
+      </div>
+    </div>
+
+    <!-- Station Summary Row -->
+    <div class="grid-3 mb-24">
+      {% for st in stations %}
+      <div class="card station-card">
+        <div class="flex-between mb-8">
+          <h3 style="font-size:.95rem;">{{ st.name }}</h3>
+          <span class="badge badge-available">{{ st.available }} free</span>
+        </div>
+        <small style="color:var(--text-light);">📍 {{ st.location }}</small>
+        <div class="progress-bar mt-16">
+          {% set pct = (st.available / st.capacity * 100) | int if st.capacity > 0 else 0 %}
+          <div class="progress-fill" style="width:{{ pct }}%;"></div>
+        </div>
+        <small class="mt-8" style="display:block;">{{ st.available }}/{{ st.capacity }} slots filled</small>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Available Bikes Grid -->
+    <div class="flex-between mb-16">
+      <h2>Available Bikes ({{ bikes|length }})</h2>
+    </div>
+
+    {% if bikes %}
+    <div class="bikes-grid">
+      {% for bike in bikes %}
+      <div class="bike-card">
+        <div class="flex gap-12" style="align-items:center;">
+          <div class="bike-icon">
+            {% if bike.type == 'electric' %}⚡
+            {% elif bike.type == 'mountain' %}🏔
+            {% else %}🚲
+            {% endif %}
+          </div>
+          <div>
+            <h3>{{ bike.model }}</h3>
+            <span class="badge badge-{{ bike.type }}">{{ bike.type | capitalize }}</span>
+          </div>
+        </div>
+        <div style="font-size:.85rem; color:var(--text-light);">
+          📍 {{ bike.station_name }}
+        </div>
+        <div style="font-size:.8rem; color:var(--text-light);">
+          Bike #{{ bike.bicycle_id }}
+        </div>
+        <!-- Reserve Form -->
+        <form method="post" action="{{ url_for('reserve_bicycle', bicycle_id=bike.bicycle_id) }}">
+          <input type="hidden" name="student_id" value="{{ student_id }}">
+          <input type="hidden" name="station_id" value="{{ bike.station_id }}">
+          <button type="submit" class="btn btn-primary btn-sm" style="width:100%; justify-content:center; margin-top:4px;">
+            Reserve →
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="card empty-state">
+      <div class="empty-icon">😔</div>
+      <h3>No bikes available</h3>
+      <p class="mt-8">Try a different type or check back shortly.</p>
+    </div>
+    {% endif %}
+
+  </div>
+</main>
+
+<script>
+  setTimeout(() => {
+    document.querySelectorAll('.flash').forEach(el => {
+      el.style.transition = 'opacity .4s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 400);
+    });
+  }, 4000);
+</script>
+</body>
+</html>

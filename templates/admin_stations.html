@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manage Stations & Bikes – CampusCycle</title>
+  <meta name="description" content="Manage station capacity, docking availability, and bicycle operational status." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <style>
+    .status-select {
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+      background: #fff;
+      font-family: inherit;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Admin Navbar ───────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="container">
+    <a href="{{ url_for('index') }}" class="navbar-brand">
+      <div class="logo-icon" style="background: #2b3a4a;">🚲</div>
+      CampusCycle <span style="font-size:0.75rem; background:#ede9e4; color:#555; padding:2px 8px; border-radius:12px; margin-left:6px; font-weight:600;">Admin</span>
+    </a>
+    <div class="navbar-links">
+      <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
+        <span>📊</span> <span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('admin_stations') }}" class="nav-link active">
+        <span>🚉</span> <span>Stations & Bikes</span>
+      </a>
+      <a href="{{ url_for('admin_rentals') }}" class="nav-link">
+        <span>📋</span> <span>Rental Records</span>
+      </a>
+      <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline btn-sm" style="margin-left:8px;">
+        Student View ↗
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Flash Messages ─────────────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-wrap">
+      {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+  <div class="container section">
+
+    <!-- Page Header -->
+    <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
+      <div>
+        <h1>Stations & Bicycle Inventory 🚉</h1>
+        <p>Monitor capacity limits, docking occupancy, and update bicycle maintenance states.</p>
+      </div>
+      <a href="{{ url_for('admin_rentals') }}" class="btn btn-primary">
+        View Active Rentals →
+      </a>
+    </div>
+
+    <!-- Stations Breakdown Cards -->
+    <h2 class="mb-16">Station Capacities & Availability</h2>
+    <div class="grid-3 mb-24">
+      {% for st in stations %}
+      <div class="card">
+        <div class="flex-between mb-8">
+          <h3 style="font-size: 1.05rem;">{{ st.name }}</h3>
+          <span class="badge badge-available">{{ st.available }} Avail</span>
+        </div>
+        <p style="font-size:0.85rem; color:var(--text-light); margin-bottom:12px;">📍 {{ st.location }}</p>
+
+        <!-- Progress bar -->
+        <div class="progress-bar">
+          {% set occ = (st.total / st.capacity * 100) | int if st.capacity > 0 else 0 %}
+          <div class="progress-fill" style="width: {{ occ }}%;"></div>
+        </div>
+
+        <div class="flex-between mt-8" style="font-size: 0.8rem; color: var(--text-light);">
+          <span>Occupancy: {{ st.total }} / {{ st.capacity }}</span>
+          <span>{{ occ }}%</span>
+        </div>
+
+        <div class="flex gap-8 mt-16" style="flex-wrap:wrap;">
+          <span class="badge badge-available">{{ st.available }} Available</span>
+          <span class="badge badge-rented">{{ st.rented }} In Use</span>
+          {% if st.maintenance > 0 %}
+            <span class="badge badge-maintenance">{{ st.maintenance }} Service</span>
+          {% endif %}
+          {% if st.reserved > 0 %}
+            <span class="badge badge-reserved">{{ st.reserved }} Reserved</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Bicycle Fleet List -->
+    <div class="card mt-24" style="padding:24px 28px;">
+      <div class="flex-between mb-16">
+        <div>
+          <h2>Bicycle Fleet Status ({{ bikes|length }})</h2>
+          <p style="font-size: 0.88rem;">Staff can quickly modify status flags for bike servicing or fleet rebalancing.</p>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="border:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Bike ID</th>
+              <th>Model</th>
+              <th>Type</th>
+              <th>Current Station</th>
+              <th>Added Date</th>
+              <th>Current Status</th>
+              <th>Quick Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in bikes %}
+            <tr>
+              <td><strong>#{{ b.bicycle_id }}</strong></td>
+              <td><strong>{{ b.model }}</strong></td>
+              <td><span class="badge badge-{{ b.type }}">{{ b.type | capitalize }}</span></td>
+              <td>📍 {{ b.station_name }}</td>
+              <td>{{ b.added_at.strftime('%b %d, %Y') if b.added_at else '—' }}</td>
+              <td>
+                <span class="badge badge-{{ b.status }}">{{ b.status | capitalize }}</span>
+              </td>
+              <td>
+                <form method="post" action="{{ url_for('update_bike_status') }}" style="display:flex; gap:6px; align-items:center; margin:0;">
+                  <input type="hidden" name="bicycle_id" value="{{ b.bicycle_id }}">
+                  <select name="status" class="status-select">
+                    <option value="available" {% if b.status == 'available' %}selected{% endif %}>Available</option>
+                    <option value="rented" {% if b.status == 'rented' %}selected{% endif %}>Rented</option>
+                    <option value="maintenance" {% if b.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                    <option value="reserved" {% if b.status == 'reserved' %}selected{% endif %}>Reserved</option>
+                  </select>
+                  <button type="submit" class="btn btn-ghost btn-sm" style="padding: 5px 10px; font-size: 0.78rem;">
+                    Update
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+  setTimeout(() => {
+    document.querySelectorAll('.flash').forEach(el => {
+      el.style.transition = 'opacity .4s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 400);
+    });
+  }, 4000);
+</script>
+</body>
+</html>

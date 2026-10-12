@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Rentals & Notifications – CampusCycle</title>
+  <meta name="description" content="View active rentals, reservation status, and due date alerts." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<!-- ── Navbar ─────────────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="container">
+    <a href="{{ url_for('index') }}" class="navbar-brand">
+      <div class="logo-icon">🚲</div>
+      CampusCycle
+    </a>
+    <div class="navbar-links">
+      <a href="{{ url_for('student_dashboard', student_id=student_id) }}" class="nav-link">
+        <span>🏠</span> <span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="nav-link">
+        <span>🚲</span> <span>Browse</span>
+      </a>
+      <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="nav-link active">
+        <span>🔔</span> <span>My Rentals</span>
+      </a>
+      <!-- Student Switcher -->
+      <form method="get" action="{{ url_for('student_notifications') }}" style="margin:0">
+        <div class="student-switcher">
+          👤
+          <select name="student_id" onchange="this.form.submit()" id="student-switcher">
+            {% for s in students %}
+              <option value="{{ s.student_id }}" {% if s.student_id == student_id %}selected{% endif %}>
+                {{ s.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </form>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Flash Messages ─────────────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-wrap">
+      {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+  <div class="container section">
+
+    <!-- Page Header -->
+    <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
+      <div>
+        <h1>My Rentals & Notifications 🔔</h1>
+        <p>Rental logs, return due dates, and reservation status for {{ student.name if student else 'Student' }}.</p>
+      </div>
+      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="btn btn-primary">
+        + Reserve Another Bike
+      </a>
+    </div>
+
+    <!-- Active Rentals Section -->
+    <div class="mb-24">
+      <div class="flex-between mb-16">
+        <h2>Active & Past Rentals ({{ rentals|length }})</h2>
+      </div>
+
+      {% if rentals %}
+      <div class="table-wrap card" style="padding:0; overflow:hidden;">
+        <table>
+          <thead>
+            <tr>
+              <th>Rental ID</th>
+              <th>Bicycle</th>
+              <th>Station</th>
+              <th>Issued At</th>
+              <th>Due Date</th>
+              <th>Returned At</th>
+              <th>Status</th>
+              <th>Issued By</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rentals %}
+            <tr class="{% if r.status == 'overdue' %}overdue-row{% endif %}">
+              <td><strong>#{{ r.rental_id }}</strong></td>
+              <td>
+                <div style="font-weight:600;">{{ r.model }}</div>
+                <small class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</small>
+              </td>
+              <td>{{ r.station_name }}</td>
+              <td>{{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}</td>
+              <td>
+                <div style="font-weight:600; {% if r.status == 'overdue' %}color:var(--danger);{% endif %}">
+                  {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
+                </div>
+                {% if r.status == 'active' and r.due_at and r.due_at < now %}
+                  <small style="color:var(--danger); font-weight:700;">⚠️ Due now!</small>
+                {% endif %}
+              </td>
+              <td>{{ r.returned_at.strftime('%b %d, %Y %I:%M %p') if r.returned_at else 'Active' }}</td>
+              <td>
+                <span class="badge badge-{{ r.status }}">
+                  {{ r.status | capitalize }}
+                </span>
+              </td>
+              <td>{{ r.issued_by or 'Staff' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card empty-state">
+        <div class="empty-icon">🚴</div>
+        <h3>No rentals yet</h3>
+        <p class="mt-8">You haven't rented any bicycles yet. Browse available bikes to get started!</p>
+        <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="btn btn-primary btn-sm mt-16">Browse Bikes</a>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Active Reservations Section -->
+    <div class="mt-24">
+      <div class="flex-between mb-16">
+        <h2>My Reservations ({{ reservations|length }})</h2>
+      </div>
+
+      {% if reservations %}
+      <div class="table-wrap card" style="padding:0; overflow:hidden;">
+        <table>
+          <thead>
+            <tr>
+              <th>Reservation ID</th>
+              <th>Bicycle</th>
+              <th>Pickup Station</th>
+              <th>Reserved At</th>
+              <th>Expires At</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for res in reservations %}
+            <tr>
+              <td><strong>#{{ res.reservation_id }}</strong></td>
+              <td>
+                <div style="font-weight:600;">{{ res.model }}</div>
+                <small class="badge badge-{{ res.type }}">{{ res.type | capitalize }}</small>
+              </td>
+              <td>📍 {{ res.station_name }}</td>
+              <td>{{ res.reserved_at.strftime('%b %d, %Y %I:%M %p') if res.reserved_at else '—' }}</td>
+              <td>
+                <span style="font-weight:600; color:var(--primary);">
+                  {{ res.expires_at.strftime('%b %d, %Y %I:%M %p') if res.expires_at else '—' }}
+                </span>
+              </td>
+              <td>
+                <span class="badge badge-{{ res.status }}">
+                  {{ res.status | capitalize }}
+                </span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card empty-state">
+        <div class="empty-icon">📌</div>
+        <h3>No active reservations</h3>
+        <p class="mt-8">When you reserve a bicycle from any station, details will show up here.</p>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</main>
+
+<script>
+  setTimeout(() => {
+    document.querySelectorAll('.flash').forEach(el => {
+      el.style.transition = 'opacity .4s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 400);
+    });
+  }, 4000);
+</script>
+</body>
+</html>

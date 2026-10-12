@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CampusCycle – Bicycle Rental System</title>
+  <meta name="description" content="Smart campus bicycle rental system – rent, reserve and track bicycles across all campus stations." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<!-- ── Hero ──────────────────────────────────────────────── -->
+<main class="hero">
+  <div class="hero-logo">🚲</div>
+  <p class="hero-subtitle">Campus Bicycle Rental</p>
+  <h1>Ride Smart.<br>Rent Easy.</h1>
+  <p>Reserve and track campus bicycles in seconds. No queues, no paperwork — just ride.</p>
+
+  <div class="hero-buttons">
+    <a href="{{ url_for('student_dashboard') }}" class="hero-btn-primary">
+      🎓 Student Portal
+    </a>
+    <a href="{{ url_for('admin_dashboard') }}" class="hero-btn-outline">
+      🛠 Admin Panel
+    </a>
+  </div>
+
+  <!-- Mini Stats Row -->
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="val">5</div>
+      <div class="lbl">Stations</div>
+    </div>
+    <div class="hero-stat">
+      <div class="val">16</div>
+      <div class="lbl">Bicycles</div>
+    </div>
+    <div class="hero-stat">
+      <div class="val">3</div>
+      <div class="lbl">Types</div>
+    </div>
+    <div class="hero-stat">
+      <div class="val">24/7</div>
+      <div class="lbl">Available</div>
+    </div>
+  </div>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard – CampusCycle</title>
+  <meta name="description" content="Administration overview for campus bicycle rental fleet." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<!-- ── Admin Navbar ───────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="container">
+    <a href="{{ url_for('index') }}" class="navbar-brand">
+      <div class="logo-icon" style="background: #2b3a4a;">🚲</div>
+      CampusCycle <span style="font-size:0.75rem; background:#ede9e4; color:#555; padding:2px 8px; border-radius:12px; margin-left:6px; font-weight:600;">Admin</span>
+    </a>
+    <div class="navbar-links">
+      <a href="{{ url_for('admin_dashboard') }}" class="nav-link active">
+        <span>📊</span> <span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('admin_stations') }}" class="nav-link">
+        <span>🚉</span> <span>Stations & Bikes</span>
+      </a>
+      <a href="{{ url_for('admin_rentals') }}" class="nav-link">
+        <span>📋</span> <span>Rental Records</span>
+        {% if overdue_rentals > 0 %}
+          <span class="nav-badge" style="background:var(--danger);">{{ overdue_rentals }}</span>
+        {% endif %}
+      </a>
+      <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline btn-sm" style="margin-left:8px;">
+        Student View ↗
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Flash Messages ─────────────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-wrap">
+      {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+  <div class="container section">
+
+    <!-- Page Header -->
+    <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
+      <div>
+        <h1>Admin Control Center 📊</h1>
+        <p>Live campus fleet metrics, station occupancy, and active rentals.</p>
+      </div>
+      <div class="flex gap-12">
+        <a href="{{ url_for('admin_stations') }}" class="btn btn-primary">
+          Manage Stations
+        </a>
+        <a href="{{ url_for('admin_rentals') }}" class="btn btn-outline">
+          View Rentals
+        </a>
+      </div>
+    </div>
+
+    <!-- Metrics Grid -->
+    <div class="grid-3 mb-24">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#fff3e0;">🚉</div>
+        <div class="stat-value">{{ total_stations }}</div>
+        <div class="stat-label">Total Rental Stations</div>
+        <small style="color:var(--text-light); margin-top:4px;">Distributed across campus</small>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#e3fcef;">🚲</div>
+        <div class="stat-value">{{ available_bikes }} <span style="font-size:1.1rem; color:var(--text-light); font-weight:500;">/ {{ total_bikes }}</span></div>
+        <div class="stat-label">Available Bicycles</div>
+        <small style="color:var(--text-light); margin-top:4px;">Ready for immediate pickup</small>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#e8f5e9;">📋</div>
+        <div class="stat-value">{{ active_rentals }}</div>
+        <div class="stat-label">Active Rentals</div>
+        <small style="color:var(--text-light); margin-top:4px;">Currently in circulation</small>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#fdecea;">⚠️</div>
+        <div class="stat-value" style="color: {% if overdue_rentals > 0 %}var(--danger){% else %}var(--text-dark){% endif %};">{{ overdue_rentals }}</div>
+        <div class="stat-label">Overdue Rentals</div>
+        <small style="color:var(--text-light); margin-top:4px;">Exceeded return deadline</small>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#e8eaf6;">🎓</div>
+        <div class="stat-value">{{ total_students }}</div>
+        <div class="stat-label">Registered Students</div>
+        <small style="color:var(--text-light); margin-top:4px;">Eligible for campus rental</small>
+      </div>
+
+      <div class="stat-card" style="justify-content:center; background:#faf7f4;">
+        <h3 style="font-size:1rem; margin-bottom:6px;">Need to issue or return?</h3>
+        <p style="font-size:0.85rem; margin-bottom:12px;">Track staff-handled checkout and check-in records.</p>
+        <a href="{{ url_for('admin_rentals') }}" class="btn btn-primary btn-sm">
+          Go to Rental Records →
+        </a>
+      </div>
+    </div>
+
+    <!-- Recent Activity Table -->
+    <div class="card" style="padding:24px 28px;">
+      <div class="flex-between mb-16">
+        <h2>Recent Rental Activity</h2>
+        <a href="{{ url_for('admin_rentals') }}" class="btn btn-outline btn-sm">View All Records →</a>
+      </div>
+
+      {% if recent_rentals %}
+      <div class="table-wrap" style="border:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Student</th>
+              <th>Roll Number</th>
+              <th>Bicycle Model</th>
+              <th>Type</th>
+              <th>Issued At</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in recent_rentals %}
+            <tr>
+              <td><strong>#{{ r.rental_id }}</strong></td>
+              <td><strong>{{ r.student_name }}</strong></td>
+              <td><code>{{ r.roll_number }}</code></td>
+              <td>{{ r.model }}</td>
+              <td><span class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</span></td>
+              <td>{{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}</td>
+              <td><span class="badge badge-{{ r.status }}">{{ r.status | capitalize }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <p>No recent rental transactions recorded.</p>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</main>
+
+<script>
+  setTimeout(() => {
+    document.querySelectorAll('.flash').forEach(el => {
+      el.style.transition = 'opacity .4s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 400);
+    });
+  }, 4000);
+</script>
+</body>
+</html>

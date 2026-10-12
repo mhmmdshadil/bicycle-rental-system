@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Student Dashboard – CampusCycle</title>
+  <meta name="description" content="Student portal dashboard for CampusCycle bicycle rental system." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<!-- ── Navbar ─────────────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="container">
+    <a href="{{ url_for('index') }}" class="navbar-brand">
+      <div class="logo-icon">🚲</div>
+      CampusCycle
+    </a>
+    <div class="navbar-links">
+      <a href="{{ url_for('student_dashboard', student_id=student_id) }}" class="nav-link active">
+        <span>🏠</span> <span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="nav-link">
+        <span>🚲</span> <span>Browse</span>
+      </a>
+      <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="nav-link">
+        <span>🔔</span> <span>My Rentals</span>
+        {% if active_rentals > 0 %}
+          <span class="nav-badge">{{ active_rentals }}</span>
+        {% endif %}
+      </a>
+      <!-- Student Switcher (demo) -->
+      <form method="get" action="{{ url_for('student_dashboard') }}" style="margin:0">
+        <div class="student-switcher">
+          👤
+          <select name="student_id" onchange="this.form.submit()" id="student-switcher">
+            {% for s in students %}
+              <option value="{{ s.student_id }}" {% if s.student_id == student_id %}selected{% endif %}>
+                {{ s.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </form>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Flash Messages ─────────────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-wrap">
+      {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">
+          {{ '✅' if cat == 'success' else '❌' }} {{ msg }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<!-- ── Main ───────────────────────────────────────────────── -->
+<main>
+  <div class="container section">
+
+    <!-- Page Header -->
+    <div class="page-header flex-between">
+      <div>
+        <h1>Welcome back, {{ student.name.split()[0] if student else 'Student' }} 👋</h1>
+        <p>
+          {% if student %}
+            {{ student.roll_number }} &nbsp;·&nbsp; {{ student.email }}
+          {% endif %}
+        </p>
+      </div>
+      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="btn btn-primary">
+        + Reserve a Bike
+      </a>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid-3 mb-24">
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#fff3e0;">🚲</div>
+        <div class="stat-value">{{ available_count }}</div>
+        <div class="stat-label">Bikes Available Now</div>
+        <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="btn btn-outline btn-sm mt-16">
+          Browse Bikes →
+        </a>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#e8f5e9;">📋</div>
+        <div class="stat-value">{{ active_rentals }}</div>
+        <div class="stat-label">Active Rentals</div>
+        <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="btn btn-outline btn-sm mt-16">
+          View Rentals →
+        </a>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#e8eaf6;">📌</div>
+        <div class="stat-value">{{ pending_reservations }}</div>
+        <div class="stat-label">Pending Reservations</div>
+        <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="btn btn-outline btn-sm mt-16">
+          Check Status →
+        </a>
+      </div>
+
+    </div>
+
+    <!-- Quick Action Cards -->
+    <h2 class="mb-16">Quick Actions</h2>
+    <div class="grid-2">
+
+      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="card" style="cursor:pointer;">
+        <div style="font-size:2rem; margin-bottom:12px;">🗺️</div>
+        <h3>Browse Stations & Bikes</h3>
+        <p class="mt-8">See real-time availability across all campus stations. Filter by bike type.</p>
+        <div class="btn btn-primary btn-sm mt-16">Explore Now →</div>
+      </a>
+
+      <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="card" style="cursor:pointer;">
+        <div style="font-size:2rem; margin-bottom:12px;">🔔</div>
+        <h3>My Rentals & Notifications</h3>
+        <p class="mt-8">Check due dates, overdue alerts, and the status of your reservations.</p>
+        <div class="btn btn-outline btn-sm mt-16">View Activity →</div>
+      </a>
+
+    </div>
+
+  </div>
+</main>
+
+<script>
+  // Auto-dismiss flash messages after 4 seconds
+  setTimeout(() => {
+    document.querySelectorAll('.flash').forEach(el => {
+      el.style.transition = 'opacity .4s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 400);
+    });
+  }, 4000);
+</script>
+</body>
+</html>

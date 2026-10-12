@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rental Records – CampusCycle</title>
+  <meta name="description" content="View and manage active issue and return records handled by staff." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<!-- ── Admin Navbar ───────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="container">
+    <a href="{{ url_for('index') }}" class="navbar-brand">
+      <div class="logo-icon" style="background: #2b3a4a;">🚲</div>
+      CampusCycle <span style="font-size:0.75rem; background:#ede9e4; color:#555; padding:2px 8px; border-radius:12px; margin-left:6px; font-weight:600;">Admin</span>
+    </a>
+    <div class="navbar-links">
+      <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
+        <span>📊</span> <span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('admin_stations') }}" class="nav-link">
+        <span>🚉</span> <span>Stations & Bikes</span>
+      </a>
+      <a href="{{ url_for('admin_rentals') }}" class="nav-link active">
+        <span>📋</span> <span>Rental Records</span>
+      </a>
+      <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline btn-sm" style="margin-left:8px;">
+        Student View ↗
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Flash Messages ─────────────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-wrap">
+      {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+  <div class="container section">
+
+    <!-- Page Header & Filter Tabs -->
+    <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
+      <div>
+        <h1>Rental Circulation Records 📋</h1>
+        <p>Track active checkouts, overdue alerts, and process bicycle returns.</p>
+      </div>
+
+      <!-- Filter Tabs -->
+      <div class="filter-tabs">
+        <a href="{{ url_for('admin_rentals', status='all') }}"
+           class="filter-tab {% if status_filter == 'all' %}active{% endif %}">All Records</a>
+        <a href="{{ url_for('admin_rentals', status='active') }}"
+           class="filter-tab {% if status_filter == 'active' %}active{% endif %}">Active</a>
+        <a href="{{ url_for('admin_rentals', status='overdue') }}"
+           class="filter-tab {% if status_filter == 'overdue' %}active{% endif %}">Overdue</a>
+        <a href="{{ url_for('admin_rentals', status='returned') }}"
+           class="filter-tab {% if status_filter == 'returned' %}active{% endif %}">Returned</a>
+      </div>
+    </div>
+
+    <!-- Rentals Table -->
+    <div class="card" style="padding:0; overflow:hidden;">
+      {% if rentals %}
+      <div class="table-wrap" style="border:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Rental ID</th>
+              <th>Student Details</th>
+              <th>Bicycle</th>
+              <th>Pickup Station</th>
+              <th>Issued Time</th>
+              <th>Due Deadline</th>
+              <th>Status</th>
+              <th>Staff Handler</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rentals %}
+            <tr class="{% if r.status == 'overdue' %}overdue-row{% endif %}">
+              <td><strong>#{{ r.rental_id }}</strong></td>
+              <td>
+                <div style="font-weight:600;">{{ r.student_name }}</div>
+                <small style="color:var(--text-light);">{{ r.roll_number }} · {{ r.email }}</small>
+              </td>
+              <td>
+                <div style="font-weight:600;">{{ r.model }} (#{{ r.bicycle_id }})</div>
+                <span class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</span>
+              </td>
+              <td>📍 {{ r.station_name }}</td>
+              <td>{{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}</td>
+              <td>
+                <span style="font-weight:600; {% if r.status == 'overdue' %}color:var(--danger);{% endif %}">
+                  {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
+                </span>
+              </td>
+              <td>
+                <span class="badge badge-{{ r.status }}">
+                  {{ r.status | capitalize }}
+                </span>
+              </td>
+              <td>{{ r.issued_by or 'Staff' }}</td>
+              <td>
+                {% if r.status == 'active' or r.status == 'overdue' %}
+                <form method="post" action="{{ url_for('return_rental', rental_id=r.rental_id) }}" style="margin:0;">
+                  <button type="submit" class="btn btn-success btn-sm">
+                    Mark Returned ✓
+                  </button>
+                </form>
+                {% else %}
+                <small style="color:var(--text-light);">Returned: {{ r.returned_at.strftime('%b %d, %I:%M %p') if r.returned_at else 'Yes' }}</small>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state" style="padding: 48px;">
+        <div class="empty-icon">📂</div>
+        <h3>No rental records found</h3>
+        <p class="mt-8">There are no records matching the selected status filter.</p>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</main>
+
+<script>
+  setTimeout(() => {
+    document.querySelectorAll('.flash').forEach(el => {
+      el.style.transition = 'opacity .4s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 400);
+    });
+  }, 4000);
+</script>
+</body>
+</html>
