@@ -5,6 +5,7 @@ Routes cover: Hero, Student Portal (dashboard, bikes, notifications),
               Admin Panel (dashboard, stations, rentals).
 """
 
+import os
 from flask import Flask, render_template, request, redirect, url_for, flash
 import mysql.connector
 from mysql.connector import Error
@@ -15,16 +16,15 @@ from datetime import datetime, timedelta
 # ─────────────────────────────────────────
 app = Flask(__name__)
 app.secret_key = "bicycle_rental_secret_key"
-
 # ─────────────────────────────────────────
 # Database Configuration
 # ─────────────────────────────────────────
 DB_CONFIG = {
-    "host":     "localhost",
-    "user":     "root",          # Change to your MySQL username
-    "password": "Shadil@12",              # Change to your MySQL password
+    "host": "localhost",
+    "user": "root",
+    "password": os.environ.get("DB_PASSWORD"),
     "database": "bicycle_rental_db",
-    "charset":  "utf8mb4",
+    "charset": "utf8mb4",
 }
 
 
@@ -223,6 +223,63 @@ def reserve_bicycle(bicycle_id):
         flash("Reservation placed successfully! Pick up within 2 hours.", "success")
     else:
         flash("Reservation failed. Please try again.", "error")
+
+    return redirect(url_for("student_notifications", student_id=student_id))
+
+
+@app.route("/student/reservation/cancel/<int:reservation_id>", methods=["POST"])
+def cancel_reservation(reservation_id):
+    """
+    Allow a student to cancel their own active bicycle reservation.
+    Verifies reservation ownership, updates status to 'cancelled',
+    and releases the bicycle back to 'available'.
+    """
+    student_id = request.form.get("student_id", type=int)
+    if not student_id:
+        student_id = request.args.get("student_id", 1, type=int)
+
+    # Fetch reservation details
+    res = query(
+        "SELECT * FROM reservations WHERE reservation_id = %s",
+        (reservation_id,),
+        fetch="one",
+    )
+
+    if not res:
+        flash("Reservation not found.", "error")
+        return redirect(url_for("student_notifications", student_id=student_id))
+
+    # Security check: Ensure students can ONLY cancel their own reservation
+    if res["student_id"] != student_id:
+        flash("Unauthorized: You can only cancel your own cycle reservation.", "error")
+        return redirect(url_for("student_notifications", student_id=student_id))
+
+    # Check if the reservation is in a cancellable state
+    if res["status"] not in ("pending", "confirmed"):
+        flash(
+            f"Reservation #{reservation_id} is already marked as {res['status']} and cannot be cancelled.",
+            "warning",
+        )
+        return redirect(url_for("student_notifications", student_id=student_id))
+
+    # 1. Update reservation status to cancelled
+    cancelled = execute(
+        "UPDATE reservations SET status = 'cancelled' WHERE reservation_id = %s AND student_id = %s",
+        (reservation_id, student_id),
+    )
+
+    if cancelled:
+        # 2. Release bicycle back to available if it is currently marked as reserved
+        execute(
+            "UPDATE bicycles SET status = 'available' WHERE bicycle_id = %s AND status = 'reserved'",
+            (res["bicycle_id"],),
+        )
+        flash(
+            f"Reservation #{reservation_id} has been cancelled successfully. The bicycle is now available for others.",
+            "success",
+        )
+    else:
+        flash("Failed to cancel reservation. Please try again.", "error")
 
     return redirect(url_for("student_notifications", student_id=student_id))
 
