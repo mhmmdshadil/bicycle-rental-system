@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My Rentals & Notifications – CampusCycle</title>
-  <meta name="description" content="View active rentals, reservation status, and due date alerts." />
+  <title>My Rentals – CampusCycle</title>
+  <meta name="description" content="View your active rentals, reservations, due dates and return status." />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
@@ -17,42 +17,47 @@
       CampusCycle
     </a>
     <div class="navbar-links">
-      <a href="{{ url_for('student_dashboard', student_id=student_id) }}" class="nav-link">
+      <a href="{{ url_for('student_dashboard') }}" class="nav-link" id="nav-dashboard">
         <span>🏠</span> <span>Dashboard</span>
       </a>
-      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="nav-link">
+      <a href="{{ url_for('student_bikes') }}" class="nav-link" id="nav-browse">
         <span>🚲</span> <span>Browse</span>
       </a>
-      <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="nav-link active">
+      <a href="{{ url_for('student_notifications') }}" class="nav-link active" id="nav-rentals">
         <span>🔔</span> <span>My Rentals</span>
       </a>
-      <!-- Student Switcher -->
-      <form method="get" action="{{ url_for('student_notifications') }}" style="margin:0">
-        <div class="student-switcher">
-          👤
-          <select name="student_id" onchange="this.form.submit()" id="student-switcher">
-            {% for s in students %}
-              <option value="{{ s.student_id }}" {% if s.student_id == student_id %}selected{% endif %}>
-                {{ s.name }}
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-      </form>
+      <div class="nav-user">
+        <div class="avatar">{{ session.student_name[0].upper() }}</div>
+        <span>{{ session.student_name.split()[0] }}</span>
+      </div>
+      <a href="{{ url_for('student_logout') }}" class="btn btn-ghost btn-sm" id="logout-btn" style="margin-left:4px;">Sign Out</a>
     </div>
   </div>
 </nav>
 
-<!-- ── Flash Messages ─────────────────────────────────────── -->
+<!-- Flash Messages -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-    <div class="flash-wrap">
+    <div class="flash-wrap" id="flash-container">
       {% for cat, msg in messages %}
         <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
       {% endfor %}
     </div>
   {% endif %}
 {% endwith %}
+
+<!-- Cancel Reservation Modal -->
+<div class="modal-overlay" id="cancel-modal">
+  <div class="modal">
+    <div class="modal-icon">⚠️</div>
+    <h3>Cancel Reservation?</h3>
+    <p id="cancel-modal-msg">Are you sure you want to cancel this reservation? The bicycle will be released back to the pool.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('cancel-modal')" id="keep-reservation-btn">Keep It</button>
+      <button class="btn btn-danger" id="confirm-cancel-btn" onclick="submitCancelForm()">Cancel Reservation</button>
+    </div>
+  </div>
+</div>
 
 <main>
   <div class="container section">
@@ -61,10 +66,10 @@
     <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
       <div>
         <h1>My Rentals & Notifications 🔔</h1>
-        <p>Rental logs, return due dates, and reservation status for {{ student.name if student else 'Student' }}.</p>
+        <p>Rental history, due dates and reservation status for {{ student.name if student else session.student_name }}.</p>
       </div>
-      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="btn btn-primary">
-        + Reserve Another Bike
+      <a href="{{ url_for('student_bikes') }}" class="btn btn-primary" id="reserve-another-btn">
+        + Reserve a Bike
       </a>
     </div>
 
@@ -100,18 +105,18 @@
               <td>{{ r.station_name }}</td>
               <td>{{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}</td>
               <td>
-                <div style="font-weight:600; {% if r.status == 'overdue' %}color:var(--danger);{% endif %}">
+                <div style="font-weight:600;" class="{% if r.status == 'overdue' %}text-danger{% endif %}">
                   {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                 </div>
                 {% if r.status == 'active' and r.due_at and r.due_at < now %}
                   <small style="color:var(--danger); font-weight:700;">⚠️ Due now!</small>
+                {% elif r.status == 'overdue' %}
+                  <small class="text-danger" style="font-weight:700;">⚠️ Overdue!</small>
                 {% endif %}
               </td>
-              <td>{{ r.returned_at.strftime('%b %d, %Y %I:%M %p') if r.returned_at else 'Active' }}</td>
+              <td>{{ r.returned_at.strftime('%b %d, %Y %I:%M %p') if r.returned_at else '—' }}</td>
               <td>
-                <span class="badge badge-{{ r.status }}">
-                  {{ r.status | capitalize }}
-                </span>
+                <span class="badge badge-{{ r.status }}">{{ r.status | capitalize }}</span>
               </td>
               <td>{{ r.issued_by or 'Staff' }}</td>
             </tr>
@@ -124,12 +129,12 @@
         <div class="empty-icon">🚴</div>
         <h3>No rentals yet</h3>
         <p class="mt-8">You haven't rented any bicycles yet. Browse available bikes to get started!</p>
-        <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="btn btn-primary btn-sm mt-16">Browse Bikes</a>
+        <a href="{{ url_for('student_bikes') }}" class="btn btn-primary btn-sm mt-16" id="browse-bikes-btn">Browse Bikes</a>
       </div>
       {% endif %}
     </div>
 
-    <!-- Active Reservations Section -->
+    <!-- Reservations Section -->
     <div class="mt-24">
       <div class="flex-between mb-16">
         <h2>My Reservations ({{ reservations|length }})</h2>
@@ -160,25 +165,30 @@
               <td>📍 {{ res.station_name }}</td>
               <td>{{ res.reserved_at.strftime('%b %d, %Y %I:%M %p') if res.reserved_at else '—' }}</td>
               <td>
-                <span style="font-weight:600; color:var(--primary);">
+                <span class="{% if res.status in ['pending', 'confirmed'] %}text-primary{% else %}text-light{% endif %}" style="font-weight:600;">
                   {{ res.expires_at.strftime('%b %d, %Y %I:%M %p') if res.expires_at else '—' }}
                 </span>
+                {% if res.status in ['pending', 'confirmed'] and res.expires_at and res.expires_at < now %}
+                  <br><small class="text-danger">Expired</small>
+                {% endif %}
               </td>
               <td>
-                <span class="badge badge-{{ res.status }}">
-                  {{ res.status | capitalize }}
-                </span>
+                <span class="badge badge-{{ res.status }}">{{ res.status | capitalize }}</span>
               </td>
               <td>
                 {% if res.status in ['pending', 'confirmed'] %}
-                <form method="post" action="{{ url_for('unreserve_bicycle', reservation_id=res.reservation_id) }}" style="margin:0; display:inline;" onsubmit="return confirm('Are you sure you want to unreserve this bicycle?');">
-                  <input type="hidden" name="student_id" value="{{ student_id }}">
-                  <button type="submit" class="btn btn-danger btn-sm" style="padding: 4px 10px; font-size: 0.8rem;">
-                    Unreserve
-                  </button>
-                </form>
+                <!-- Hidden cancel form -->
+                <form method="post" action="{{ url_for('unreserve_bicycle', reservation_id=res.reservation_id) }}"
+                      id="cancel-form-{{ res.reservation_id }}" style="display:none;"></form>
+                <button type="button" class="btn btn-danger btn-sm"
+                        id="cancel-res-btn-{{ res.reservation_id }}"
+                        data-res-id="{{ res.reservation_id }}"
+                        data-model="{{ res.model }}"
+                        onclick="openCancelModal(this.dataset.resId, this.dataset.model)">
+                  Cancel
+                </button>
                 {% else %}
-                <span style="color:var(--text-light); font-size: 0.85rem;">—</span>
+                <span style="color:var(--text-light); font-size:.85rem;">—</span>
                 {% endif %}
               </td>
             </tr>
@@ -190,7 +200,7 @@
       <div class="card empty-state">
         <div class="empty-icon">📌</div>
         <h3>No active reservations</h3>
-        <p class="mt-8">When you reserve a bicycle from any station, details will show up here.</p>
+        <p class="mt-8">When you reserve a bicycle, details will show up here.</p>
       </div>
       {% endif %}
     </div>
@@ -199,13 +209,38 @@
 </main>
 
 <script>
+  let pendingCancelFormId = null;
+
+  function openCancelModal(resId, model) {
+    pendingCancelFormId = 'cancel-form-' + resId;
+    document.getElementById('cancel-modal-msg').textContent =
+      `Cancel reservation for ${model}? The bicycle will be released back to the pool immediately.`;
+    document.getElementById('cancel-modal').classList.add('active');
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+    pendingCancelFormId = null;
+  }
+
+  function submitCancelForm() {
+    if (pendingCancelFormId) {
+      document.getElementById(pendingCancelFormId).submit();
+    }
+  }
+
+  document.getElementById('cancel-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal('cancel-modal');
+  });
+
+  // Auto-dismiss flashes
   setTimeout(() => {
     document.querySelectorAll('.flash').forEach(el => {
       el.style.transition = 'opacity .4s';
       el.style.opacity = '0';
       setTimeout(() => el.remove(), 400);
     });
-  }, 4000);
+  }, 4500);
 </script>
 </body>
 </html>

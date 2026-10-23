@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Student Dashboard – CampusCycle</title>
-  <meta name="description" content="Student portal dashboard for CampusCycle bicycle rental system." />
+  <title>Dashboard – CampusCycle</title>
+  <meta name="description" content="Your CampusCycle student dashboard – bikes, reservations and rentals at a glance." />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
@@ -17,31 +17,26 @@
       CampusCycle
     </a>
     <div class="navbar-links">
-      <a href="{{ url_for('student_dashboard', student_id=student_id) }}" class="nav-link active">
+      <a href="{{ url_for('student_dashboard') }}" class="nav-link active" id="nav-dashboard">
         <span>🏠</span> <span>Dashboard</span>
       </a>
-      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="nav-link">
+      <a href="{{ url_for('student_bikes') }}" class="nav-link" id="nav-browse">
         <span>🚲</span> <span>Browse</span>
       </a>
-      <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="nav-link">
+      <a href="{{ url_for('student_notifications') }}" class="nav-link" id="nav-rentals">
         <span>🔔</span> <span>My Rentals</span>
         {% if active_rentals > 0 %}
           <span class="nav-badge">{{ active_rentals }}</span>
         {% endif %}
       </a>
-      <!-- Student Switcher (demo) -->
-      <form method="get" action="{{ url_for('student_dashboard') }}" style="margin:0">
-        <div class="student-switcher">
-          👤
-          <select name="student_id" onchange="this.form.submit()" id="student-switcher">
-            {% for s in students %}
-              <option value="{{ s.student_id }}" {% if s.student_id == student_id %}selected{% endif %}>
-                {{ s.name }}
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-      </form>
+      <!-- User info + logout -->
+      <div class="nav-user">
+        <div class="avatar">{{ session.student_name[0].upper() }}</div>
+        <span>{{ session.student_name.split()[0] }}</span>
+      </div>
+      <a href="{{ url_for('student_logout') }}" class="btn btn-ghost btn-sm" id="logout-btn" style="margin-left:4px;">
+        Sign Out
+      </a>
     </div>
   </div>
 </nav>
@@ -49,7 +44,7 @@
 <!-- ── Flash Messages ─────────────────────────────────────── -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-    <div class="flash-wrap">
+    <div class="flash-wrap" id="flash-container">
       {% for cat, msg in messages %}
         <div class="flash flash-{{ cat }}">
           {{ '✅' if cat == 'success' else '❌' }} {{ msg }}
@@ -64,16 +59,16 @@
   <div class="container section">
 
     <!-- Page Header -->
-    <div class="page-header flex-between">
+    <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
       <div>
-        <h1>Welcome back, {{ student.name.split()[0] if student else 'Student' }} 👋</h1>
+        <h1>Welcome back, {{ student.name.split()[0] if student else session.student_name.split()[0] }} 👋</h1>
         <p>
           {% if student %}
             {{ student.roll_number }} &nbsp;·&nbsp; {{ student.email }}
           {% endif %}
         </p>
       </div>
-      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="btn btn-primary">
+      <a href="{{ url_for('student_bikes') }}" class="btn btn-primary" id="reserve-bike-btn">
         + Reserve a Bike
       </a>
     </div>
@@ -85,7 +80,7 @@
         <div class="stat-icon" style="background:#fff3e0;">🚲</div>
         <div class="stat-value">{{ available_count }}</div>
         <div class="stat-label">Bikes Available Now</div>
-        <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="btn btn-outline btn-sm mt-16">
+        <a href="{{ url_for('student_bikes') }}" class="btn btn-outline btn-sm mt-16" id="browse-btn">
           Browse Bikes →
         </a>
       </div>
@@ -94,34 +89,38 @@
         <div class="stat-icon" style="background:#e8f5e9;">📋</div>
         <div class="stat-value">{{ active_rentals }}</div>
         <div class="stat-label">Active Rentals</div>
-        <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="btn btn-outline btn-sm mt-16">
+        <a href="{{ url_for('student_notifications') }}" class="btn btn-outline btn-sm mt-16" id="view-rentals-btn">
           View Rentals →
         </a>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background:#e8eaf6;">📌</div>
-        <div class="stat-value">{{ pending_reservations }}</div>
-        <div class="stat-label">Pending Reservations</div>
-        <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="btn btn-outline btn-sm mt-16">
+        <div class="stat-icon {% if overdue_rentals > 0 %}bg-danger-subtle{% else %}bg-primary-subtle{% endif %}">
+          {% if overdue_rentals > 0 %}⚠️{% else %}📌{% endif %}
+        </div>
+        <div class="stat-value {% if overdue_rentals > 0 %}text-danger{% endif %}">
+          {{ overdue_rentals if overdue_rentals > 0 else pending_reservations }}
+        </div>
+        <div class="stat-label">{{ 'Overdue Rentals ⚠️' if overdue_rentals > 0 else 'Pending Reservations' }}</div>
+        <a href="{{ url_for('student_notifications') }}" class="btn btn-outline btn-sm mt-16" id="check-status-btn">
           Check Status →
         </a>
       </div>
 
     </div>
 
-    <!-- Quick Action Cards -->
+    <!-- Quick Actions -->
     <h2 class="mb-16">Quick Actions</h2>
     <div class="grid-2">
 
-      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="card" style="cursor:pointer;">
+      <a href="{{ url_for('student_bikes') }}" class="card" style="cursor:pointer;" id="explore-card">
         <div style="font-size:2rem; margin-bottom:12px;">🗺️</div>
         <h3>Browse Stations & Bikes</h3>
         <p class="mt-8">See real-time availability across all campus stations. Filter by bike type.</p>
         <div class="btn btn-primary btn-sm mt-16">Explore Now →</div>
       </a>
 
-      <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="card" style="cursor:pointer;">
+      <a href="{{ url_for('student_notifications') }}" class="card" style="cursor:pointer;" id="activity-card">
         <div style="font-size:2rem; margin-bottom:12px;">🔔</div>
         <h3>My Rentals & Notifications</h3>
         <p class="mt-8">Check due dates, overdue alerts, and the status of your reservations.</p>
@@ -134,14 +133,15 @@
 </main>
 
 <script>
-  // Auto-dismiss flash messages after 4 seconds
+  // Auto-dismiss flash messages
   setTimeout(() => {
     document.querySelectorAll('.flash').forEach(el => {
-      el.style.transition = 'opacity .4s';
+      el.style.transition = 'opacity .4s, transform .4s';
       el.style.opacity = '0';
+      el.style.transform = 'translateX(20px)';
       setTimeout(() => el.remove(), 400);
     });
-  }, 4000);
+  }, 4500);
 </script>
 </body>
 </html>

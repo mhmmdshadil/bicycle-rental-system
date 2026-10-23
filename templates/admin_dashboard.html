@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin Dashboard – CampusCycle</title>
-  <meta name="description" content="Administration overview for campus bicycle rental fleet." />
+  <meta name="description" content="CampusCycle administration overview – live fleet metrics, station occupancy, and active rentals." />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
@@ -14,38 +14,56 @@
   <div class="container">
     <a href="{{ url_for('index') }}" class="navbar-brand">
       <div class="logo-icon" style="background: #2b3a4a;">🚲</div>
-      CampusCycle <span style="font-size:0.75rem; background:#ede9e4; color:#555; padding:2px 8px; border-radius:12px; margin-left:6px; font-weight:600;">Admin</span>
+      CampusCycle <span class="admin-tag">Admin</span>
     </a>
     <div class="navbar-links">
-      <a href="{{ url_for('admin_dashboard') }}" class="nav-link active">
+      <a href="{{ url_for('admin_dashboard') }}" class="nav-link active" id="nav-admin-dash">
         <span>📊</span> <span>Dashboard</span>
       </a>
-      <a href="{{ url_for('admin_stations') }}" class="nav-link">
+      <a href="{{ url_for('admin_stations') }}" class="nav-link" id="nav-admin-stations">
         <span>🚉</span> <span>Stations & Bikes</span>
       </a>
-      <a href="{{ url_for('admin_rentals') }}" class="nav-link">
+      <a href="{{ url_for('admin_rentals') }}" class="nav-link" id="nav-admin-rentals">
         <span>📋</span> <span>Rental Records</span>
         {% if overdue_rentals > 0 %}
-          <span class="nav-badge" style="background:var(--danger);">{{ overdue_rentals }}</span>
+          <span class="nav-badge">{{ overdue_rentals }}</span>
         {% endif %}
       </a>
-      <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline btn-sm" style="margin-left:8px;">
-        Student View ↗
-      </a>
+      <div class="nav-user" style="background:#2b3a4a1a; border-color:#2b3a4a33; color:#2b3a4a;">
+        <div class="avatar" style="background:#2b3a4a;">{{ session.staff_name[0].upper() }}</div>
+        <span>{{ session.staff_name.split()[0] }}</span>
+        <span class="badge badge-{{ session.staff_role }}" style="padding:2px 8px; font-size:.68rem;">{{ session.staff_role | capitalize }}</span>
+      </div>
+      <a href="{{ url_for('admin_logout') }}" class="btn btn-ghost btn-sm" id="admin-logout-btn" style="margin-left:4px;">Sign Out</a>
     </div>
   </div>
 </nav>
 
-<!-- ── Flash Messages ─────────────────────────────────────── -->
+<!-- Flash Messages -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-    <div class="flash-wrap">
+    <div class="flash-wrap" id="flash-container">
       {% for cat, msg in messages %}
         <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
       {% endfor %}
     </div>
   {% endif %}
 {% endwith %}
+
+<!-- Sync Overdue Confirmation Modal -->
+<div class="modal-overlay" id="sync-modal">
+  <div class="modal">
+    <div class="modal-icon">🔄</div>
+    <h3>Sync Overdue Status?</h3>
+    <p>This will mark all active rentals past their due date as overdue, and expire any outdated reservations. Run this if data appears stale.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('sync-modal')" id="cancel-sync-btn">Cancel</button>
+      <form method="post" action="{{ url_for('sync_overdue') }}" style="margin:0;">
+        <button type="submit" class="btn btn-danger" id="confirm-sync-btn">Run Sync</button>
+      </form>
+    </div>
+  </div>
+</div>
 
 <main>
   <div class="container section">
@@ -56,13 +74,13 @@
         <h1>Admin Control Center 📊</h1>
         <p>Live campus fleet metrics, station occupancy, and active rentals.</p>
       </div>
-      <div class="flex gap-12">
-        <a href="{{ url_for('admin_stations') }}" class="btn btn-primary">
-          Manage Stations
-        </a>
-        <a href="{{ url_for('admin_rentals') }}" class="btn btn-outline">
-          View Rentals
-        </a>
+      <div class="flex gap-12" style="flex-wrap:wrap;">
+        <a href="{{ url_for('admin_stations') }}" class="btn btn-primary" id="manage-stations-btn">Manage Stations</a>
+        <a href="{{ url_for('admin_rentals') }}" class="btn btn-outline" id="view-rentals-btn">View Rentals</a>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('sync-modal').classList.add('active')" id="sync-overdue-btn"
+                title="Mark overdue rentals & expire stale reservations">
+          🔄 Sync Overdue
+        </button>
       </div>
     </div>
 
@@ -72,60 +90,52 @@
         <div class="stat-icon" style="background:#fff3e0;">🚉</div>
         <div class="stat-value">{{ total_stations }}</div>
         <div class="stat-label">Total Rental Stations</div>
-        <small style="color:var(--text-light); margin-top:4px;">Distributed across campus</small>
+        <small style="margin-top:4px;">Distributed across campus</small>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background:#e3fcef;">🚲</div>
+        <div class="stat-icon" style="background:#e3f2fd;">🚲</div>
         <div class="stat-value">{{ available_bikes }} <span style="font-size:1.1rem; color:var(--text-light); font-weight:500;">/ {{ total_bikes }}</span></div>
         <div class="stat-label">Available Bicycles</div>
-        <small style="color:var(--text-light); margin-top:4px;">Ready for immediate pickup</small>
+        <small style="margin-top:4px;">Ready for immediate pickup</small>
       </div>
 
       <div class="stat-card">
         <div class="stat-icon" style="background:#e8f5e9;">📋</div>
         <div class="stat-value">{{ active_rentals }}</div>
         <div class="stat-label">Active Rentals</div>
-        <small style="color:var(--text-light); margin-top:4px;">Currently in circulation</small>
+        <small style="margin-top:4px;">Currently in circulation</small>
       </div>
 
       <div class="stat-card">
         <div class="stat-icon" style="background:#fdecea;">⚠️</div>
-        <div class="stat-value" style="color: {% if overdue_rentals > 0 %}var(--danger){% else %}var(--text-dark){% endif %};">{{ overdue_rentals }}</div>
+        <div class="stat-value {% if overdue_rentals > 0 %}text-danger{% endif %}">{{ overdue_rentals }}</div>
         <div class="stat-label">Overdue Rentals</div>
-        <small style="color:var(--text-light); margin-top:4px;">Exceeded return deadline</small>
+        <small style="margin-top:4px;">Exceeded return deadline</small>
       </div>
 
       <div class="stat-card">
         <div class="stat-icon" style="background:#e8eaf6;">📌</div>
         <div class="stat-value">{{ pending_reservations }}</div>
         <div class="stat-label">Pending Reservations</div>
-        <small style="color:var(--text-light); margin-top:4px;">Awaiting student pickup</small>
+        <small style="margin-top:4px;">Awaiting student pickup</small>
       </div>
 
       <div class="stat-card">
-        <div class="stat-icon" style="background:#e8eaf6;">🎓</div>
+        <div class="stat-icon" style="background:#f3e5f5;">🎓</div>
         <div class="stat-value">{{ total_students }}</div>
         <div class="stat-label">Registered Students</div>
-        <small style="color:var(--text-light); margin-top:4px;">Eligible for campus rental</small>
-      </div>
-
-      <div class="stat-card" style="justify-content:center; background:#faf7f4;">
-        <h3 style="font-size:1rem; margin-bottom:6px;">Need to issue or return?</h3>
-        <p style="font-size:0.85rem; margin-bottom:12px;">Track staff-handled checkout, check-in, and reservation records.</p>
-        <a href="{{ url_for('admin_rentals') }}" class="btn btn-primary btn-sm">
-          Go to Rental Records →
-        </a>
+        <small style="margin-top:4px;">Eligible for campus rental</small>
       </div>
     </div>
 
     <!-- Recent Activity Table -->
-    <div class="card" style="padding:24px 28px;">
-      <div class="flex-between mb-16">
-        <h2>Recent Rental & Reservation Activity</h2>
-        <a href="{{ url_for('admin_rentals') }}" class="btn btn-outline btn-sm">View All Records →</a>
-      </div>
+    <div class="flex-between mb-16">
+      <h2>Recent Activity</h2>
+      <a href="{{ url_for('admin_rentals') }}" class="btn btn-outline btn-sm" id="view-all-rentals-btn">View All →</a>
+    </div>
 
+    <div class="card" style="padding:0; overflow:hidden;">
       {% if recent_rentals %}
       <div class="table-wrap" style="border:none;">
         <table>
@@ -133,30 +143,26 @@
             <tr>
               <th>ID</th>
               <th>Student</th>
-              <th>Roll Number</th>
-              <th>Bicycle Model</th>
+              <th>Bicycle</th>
               <th>Type</th>
-              <th>Activity Time</th>
+              <th>Date</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {% for r in recent_rentals %}
-            <tr>
+            <tr class="{% if r.status == 'overdue' %}overdue-row{% endif %}">
               <td>
-                {% if r.record_type == 'reservation' %}
-                  <strong>#RES-{{ r.rental_id }}</strong>
-                  <span class="badge badge-reserved" style="font-size:0.65rem; padding:1px 5px; margin-left:4px;">Reservation</span>
-                {% else %}
-                  <strong>#R-{{ r.rental_id }}</strong>
-                  <span class="badge badge-standard" style="font-size:0.65rem; padding:1px 5px; margin-left:4px;">Rental</span>
-                {% endif %}
+                <strong>{% if r.record_type == 'reservation' %}#RES-{% else %}#R-{% endif %}{{ r.rental_id }}</strong>
+                <div><span class="badge badge-{% if r.record_type == 'reservation' %}reserved{% else %}standard{% endif %}" style="font-size:.65rem; padding:2px 6px;">{{ r.record_type | capitalize }}</span></div>
               </td>
-              <td><strong>{{ r.student_name }}</strong></td>
-              <td><code>{{ r.roll_number }}</code></td>
+              <td>
+                <div style="font-weight:600;">{{ r.student_name }}</div>
+                <small>{{ r.roll_number }}</small>
+              </td>
               <td>{{ r.model }}</td>
               <td><span class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</span></td>
-              <td>{{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}</td>
+              <td>{{ r.issued_at.strftime('%b %d, %I:%M %p') if r.issued_at else '—' }}</td>
               <td><span class="badge badge-{{ r.status }}">{{ r.status | capitalize }}</span></td>
             </tr>
             {% endfor %}
@@ -164,8 +170,10 @@
         </table>
       </div>
       {% else %}
-      <div class="empty-state">
-        <p>No recent rental transactions recorded.</p>
+      <div class="empty-state" style="padding:48px;">
+        <div class="empty-icon">📂</div>
+        <h3>No recent activity</h3>
+        <p class="mt-8">No rentals or reservations recorded yet.</p>
       </div>
       {% endif %}
     </div>
@@ -174,13 +182,21 @@
 </main>
 
 <script>
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+  }
+
+  document.getElementById('sync-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal('sync-modal');
+  });
+
   setTimeout(() => {
     document.querySelectorAll('.flash').forEach(el => {
       el.style.transition = 'opacity .4s';
       el.style.opacity = '0';
       setTimeout(() => el.remove(), 400);
     });
-  }, 4000);
+  }, 4500);
 </script>
 </body>
 </html>

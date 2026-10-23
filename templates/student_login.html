@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Student Login – CampusCycle</title>
+  <meta name="description" content="Log in to the CampusCycle student portal to reserve and track bicycles." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<div class="auth-page">
+  <!-- Brand Side -->
+  <div class="auth-brand">
+    <div class="auth-brand-logo">🚲</div>
+    <h2>CampusCycle</h2>
+    <p>Your smart campus mobility platform. Reserve bikes, track rentals, ride free.</p>
+    <div class="auth-brand-features">
+      <div class="auth-brand-feature">
+        <span class="feat-icon">⚡</span>
+        <span class="feat-text">Instant bike reservations</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">📍</span>
+        <span class="feat-text">5 campus stations</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">🔔</span>
+        <span class="feat-text">Real-time due date alerts</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">🏔</span>
+        <span class="feat-text">Standard, Electric & Mountain</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Form Side -->
+  <div class="auth-form-panel">
+    <div class="auth-form-box">
+      <a href="{{ url_for('index') }}" class="auth-back">← Back to Home</a>
+
+      <!-- Flash Messages -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for cat, msg in messages %}
+            <div class="flash flash-{{ cat }}" style="margin-bottom:16px; animation:none;">
+              {{ '✅' if cat == 'success' else '❌' }} {{ msg }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <h1>Welcome back 👋</h1>
+      <p class="auth-subtitle">Log in with your email or roll number</p>
+
+      <form method="post" action="{{ url_for('student_login') }}" id="login-form">
+        <div class="form-group">
+          <label class="form-label" for="identifier">Email or Roll Number</label>
+          <div class="form-input-icon">
+            <span class="input-icon">👤</span>
+            <input
+              class="form-input" type="text" id="identifier" name="identifier"
+              placeholder="e.g. arjun@campus.edu or CS2021001"
+              autocomplete="username" required
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <div class="pw-wrap">
+            <input
+              class="form-input" type="password" id="password" name="password"
+              placeholder="Enter your password"
+              autocomplete="current-password" required
+            />
+            <button type="button" class="pw-toggle" onclick="togglePw('password', this)" aria-label="Toggle password visibility">👁</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-auth" id="login-submit-btn">
+          Sign In →
+        </button>
+      </form>
+
+      <div class="auth-divider">or</div>
+
+      <div class="auth-footer">
+        Don't have an account?
+        <a href="{{ url_for('student_register') }}" id="register-link">Create one →</a>
+      </div>
+      <div class="auth-footer" style="margin-top:10px;">
+        <a href="{{ url_for('admin_login') }}" id="admin-login-link" style="color:var(--text-light); font-weight:400;">
+          Admin? Log in here →
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function togglePw(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.textContent = '🙈';
+    } else {
+      input.type = 'password';
+      btn.textContent = '👁';
+    }
+  }
+</script>
+</body>
+</html>

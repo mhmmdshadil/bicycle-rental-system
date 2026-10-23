@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login – CampusCycle</title>
+  <meta name="description" content="Staff login to access the CampusCycle administration panel." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<div class="auth-page">
+  <!-- Brand Side -->
+  <div class="auth-brand" style="background: linear-gradient(145deg, #1a2638 0%, #0f1a26 100%);">
+    <div class="auth-brand-logo" style="background: #2b3a4a; border: 2px solid rgba(255,255,255,.15);">🛠</div>
+    <h2>Admin Panel</h2>
+    <p>Manage the campus bicycle fleet, stations, and rental records from one place.</p>
+    <div class="auth-brand-features">
+      <div class="auth-brand-feature">
+        <span class="feat-icon">📊</span>
+        <span class="feat-text">Real-time fleet analytics</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">🚉</span>
+        <span class="feat-text">Manage 5 campus stations</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">📋</span>
+        <span class="feat-text">Process returns & reservations</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">⚠️</span>
+        <span class="feat-text">Overdue alerts & tracking</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Form Side -->
+  <div class="auth-form-panel">
+    <div class="auth-form-box">
+      <a href="{{ url_for('index') }}" class="auth-back">← Back to Home</a>
+
+      <!-- Flash Messages -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for cat, msg in messages %}
+            <div class="flash flash-{{ cat }}" style="margin-bottom:16px; animation:none; position:static; min-width:0; width:100%;">
+              {{ '✅' if cat == 'success' else '❌' }} {{ msg }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div style="display:inline-flex; align-items:center; gap:8px; background:#2b3a4a; color:#fff; padding:5px 14px; border-radius:50px; font-size:.78rem; font-weight:600; margin-bottom:20px; letter-spacing:.3px;">
+        🛠 STAFF ACCESS
+      </div>
+      <h1>Admin Sign In</h1>
+      <p class="auth-subtitle">Enter your staff credentials to continue</p>
+
+      <form method="post" action="{{ url_for('admin_login') }}" id="admin-login-form">
+        <div class="form-group">
+          <label class="form-label" for="email">Staff Email</label>
+          <div class="form-input-icon">
+            <span class="input-icon">✉️</span>
+            <input
+              class="form-input" type="email" id="email" name="email"
+              placeholder="e.g. admin@campuscycle.edu"
+              required autocomplete="email"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <div class="pw-wrap">
+            <input
+              class="form-input" type="password" id="password" name="password"
+              placeholder="Enter staff password"
+              required autocomplete="current-password"
+            />
+            <button type="button" class="pw-toggle" onclick="togglePw('password', this)" aria-label="Toggle password">👁</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-dark btn-auth" id="admin-login-submit-btn">
+          Access Admin Panel →
+        </button>
+      </form>
+
+      <div class="auth-divider">or</div>
+
+      <div class="auth-footer">
+        Not an admin? <a href="{{ url_for('student_login') }}" id="student-link">Student login →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function togglePw(id, btn) {
+    const el = document.getElementById(id);
+    el.type = el.type === 'password' ? 'text' : 'password';
+    btn.textContent = el.type === 'password' ? '👁' : '🙈';
+  }
+</script>
+</body>
+</html>

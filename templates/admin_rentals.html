@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rental Records – CampusCycle</title>
+  <title>Rental Records – CampusCycle Admin</title>
   <meta name="description" content="View and manage active issue and return records handled by staff." />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
@@ -14,21 +14,27 @@
   <div class="container">
     <a href="{{ url_for('index') }}" class="navbar-brand">
       <div class="logo-icon" style="background: #2b3a4a;">🚲</div>
-      CampusCycle <span style="font-size:0.75rem; background:#ede9e4; color:#555; padding:2px 8px; border-radius:12px; margin-left:6px; font-weight:600;">Admin</span>
+      CampusCycle <span class="admin-tag">Admin</span>
     </a>
     <div class="navbar-links">
-      <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
+      <a href="{{ url_for('admin_dashboard') }}" class="nav-link" id="nav-admin-dash">
         <span>📊</span> <span>Dashboard</span>
       </a>
-      <a href="{{ url_for('admin_stations') }}" class="nav-link">
+      <a href="{{ url_for('admin_stations') }}" class="nav-link" id="nav-admin-stations">
         <span>🚉</span> <span>Stations & Bikes</span>
       </a>
-      <a href="{{ url_for('admin_rentals') }}" class="nav-link active">
+      <a href="{{ url_for('admin_rentals') }}" class="nav-link active" id="nav-admin-rentals">
         <span>📋</span> <span>Rental Records</span>
+        {% if reserved_count > 0 %}
+          <span class="nav-badge" style="background:var(--primary);">{{ reserved_count }}</span>
+        {% endif %}
       </a>
-      <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline btn-sm" style="margin-left:8px;">
-        Student View ↗
-      </a>
+      <div class="nav-user" style="background:#2b3a4a1a; border-color:#2b3a4a33; color:#2b3a4a;">
+        <div class="avatar" style="background:#2b3a4a;">{{ session.staff_name[0].upper() if session.staff_name else 'A' }}</div>
+        <span>{{ session.staff_name.split()[0] if session.staff_name else 'Admin' }}</span>
+        <span class="badge badge-{{ session.staff_role or 'admin' }}" style="padding:2px 8px; font-size:.68rem;">{{ (session.staff_role or 'admin') | capitalize }}</span>
+      </div>
+      <a href="{{ url_for('admin_logout') }}" class="btn btn-ghost btn-sm" id="admin-logout-btn" style="margin-left:4px;">Sign Out</a>
     </div>
   </div>
 </nav>
@@ -36,13 +42,54 @@
 <!-- ── Flash Messages ─────────────────────────────────────── -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-    <div class="flash-wrap">
+    <div class="flash-wrap" id="flash-container">
       {% for cat, msg in messages %}
         <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
       {% endfor %}
     </div>
   {% endif %}
 {% endwith %}
+
+<!-- ── Custom Confirmation Modals ─────────────────────────── -->
+
+<!-- 1. Admin Cancel Reservation Modal -->
+<div class="modal-overlay" id="admin-cancel-modal">
+  <div class="modal">
+    <div class="modal-icon">⚠️</div>
+    <h3>Cancel Reservation?</h3>
+    <p id="admin-cancel-modal-msg">Are you sure you want to cancel this reservation? The bicycle will be restored to the available pool.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('admin-cancel-modal')" id="admin-keep-res-btn">Keep It</button>
+      <button type="button" class="btn btn-danger" id="admin-confirm-cancel-btn" onclick="submitActiveModalForm()">Cancel Reservation</button>
+    </div>
+  </div>
+</div>
+
+<!-- 2. Admin Issue Bike Modal -->
+<div class="modal-overlay" id="admin-issue-modal">
+  <div class="modal">
+    <div class="modal-icon">🚲</div>
+    <h3>Issue Bicycle</h3>
+    <p id="admin-issue-modal-msg">Issue this bicycle to the student? This converts the reservation into an active 2-day rental.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('admin-issue-modal')" id="admin-cancel-issue-btn">Back</button>
+      <button type="button" class="btn btn-primary" id="admin-confirm-issue-btn" onclick="submitActiveModalForm()">Issue Bike →</button>
+    </div>
+  </div>
+</div>
+
+<!-- 3. Admin Return Rental Modal -->
+<div class="modal-overlay" id="admin-return-modal">
+  <div class="modal">
+    <div class="modal-icon">✅</div>
+    <h3>Process Bicycle Return</h3>
+    <p id="admin-return-modal-msg">Mark this bicycle as returned? It will become immediately available for student reservations.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('admin-return-modal')" id="admin-cancel-return-btn">Cancel</button>
+      <button type="button" class="btn btn-success" id="admin-confirm-return-btn" onclick="submitActiveModalForm()">Confirm Return ✓</button>
+    </div>
+  </div>
+</div>
 
 <main>
   <div class="container section">
@@ -57,20 +104,20 @@
       <!-- Filter Tabs -->
       <div class="filter-tabs">
         <a href="{{ url_for('admin_rentals', status='all') }}"
-           class="filter-tab {% if status_filter == 'all' %}active{% endif %}">All Records</a>
+           class="filter-tab {% if status_filter == 'all' %}active{% endif %}" id="filter-all">All Records</a>
         <a href="{{ url_for('admin_rentals', status='active') }}"
-           class="filter-tab {% if status_filter == 'active' %}active{% endif %}">Active Rentals</a>
+           class="filter-tab {% if status_filter == 'active' %}active{% endif %}" id="filter-active">Active Rentals</a>
         <a href="{{ url_for('admin_rentals', status='reserved') }}"
-           class="filter-tab {% if status_filter == 'reserved' %}active{% endif %}">
+           class="filter-tab {% if status_filter == 'reserved' %}active{% endif %}" id="filter-reserved">
            Reserved
            {% if reserved_count > 0 %}
              <span class="nav-badge" style="background:var(--primary); font-size:0.72rem; padding:2px 7px; margin-left:4px;">{{ reserved_count }}</span>
            {% endif %}
         </a>
         <a href="{{ url_for('admin_rentals', status='overdue') }}"
-           class="filter-tab {% if status_filter == 'overdue' %}active{% endif %}">Overdue</a>
+           class="filter-tab {% if status_filter == 'overdue' %}active{% endif %}" id="filter-overdue">Overdue</a>
         <a href="{{ url_for('admin_rentals', status='returned') }}"
-           class="filter-tab {% if status_filter == 'returned' %}active{% endif %}">Returned</a>
+           class="filter-tab {% if status_filter == 'returned' %}active{% endif %}" id="filter-returned">Returned</a>
       </div>
     </div>
 
@@ -98,30 +145,32 @@
               <td>
                 {% if r.record_type == 'reservation' %}
                   <strong>#RES-{{ r.reservation_id }}</strong>
-                  <div><span class="badge badge-reserved" style="font-size:0.68rem; padding:2px 6px; margin-top:2px;">Reservation</span></div>
+                  <div style="font-size:0.75rem; color:var(--text-light);">Reservation</div>
                 {% else %}
-                  <strong>#R-{{ r.rental_id }}</strong>
-                  <div><span class="badge badge-standard" style="font-size:0.68rem; padding:2px 6px; margin-top:2px;">Rental</span></div>
+                  <strong>#RNT-{{ r.rental_id }}</strong>
+                  <div style="font-size:0.75rem; color:var(--text-light);">Active Rental</div>
                 {% endif %}
               </td>
               <td>
                 <div style="font-weight:600;">{{ r.student_name }}</div>
-                <small style="color:var(--text-light);">{{ r.roll_number }} · {{ r.email }}</small>
+                <div style="font-size:0.8rem; color:var(--text-light);">{{ r.roll_number }}</div>
               </td>
               <td>
-                <div style="font-weight:600;">{{ r.model }} (#{{ r.bicycle_id }})</div>
-                <span class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</span>
+                <div style="font-weight:600;">{{ r.model }}</div>
+                <small class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</small>
               </td>
               <td>📍 {{ r.station_name }}</td>
-              <td>{{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}</td>
+              <td>
+                {{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}
+              </td>
               <td>
                 {% if r.record_type == 'reservation' %}
-                  <span style="font-weight:600; color:var(--primary);">
+                  <span class="{% if r.status in ['pending','confirmed'] %}text-primary{% else %}text-light{% endif %}" style="font-weight:600;">
                     {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                   </span>
                   <div style="font-size:0.75rem; color:var(--text-light);">Expires</div>
                 {% else %}
-                  <span style="font-weight:600; {% if r.status == 'overdue' %}color:var(--danger);{% endif %}">
+                  <span style="font-weight:600;" class="{% if r.status == 'overdue' %}text-danger{% endif %}">
                     {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                   </span>
                   <div style="font-size:0.75rem; color:var(--text-light);">Due</div>
@@ -137,16 +186,30 @@
                 {% if r.record_type == 'reservation' %}
                   {% if r.status in ['pending', 'confirmed'] %}
                   <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    <form method="post" action="{{ url_for('issue_reservation', reservation_id=r.reservation_id) }}" style="margin:0;">
-                      <button type="submit" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;">
-                        Issue Bike ✓
-                      </button>
-                    </form>
-                    <form method="post" action="{{ url_for('cancel_reservation_admin', reservation_id=r.reservation_id) }}" style="margin:0;" onsubmit="return confirm('Cancel this reservation?');">
-                      <button type="submit" class="btn btn-outline btn-sm" style="color:var(--danger); border-color:var(--danger); padding:4px 8px; font-size:0.8rem;">
-                        Cancel ✕
-                      </button>
-                    </form>
+                    <!-- Hidden Issue Form -->
+                    <form method="post" action="{{ url_for('issue_reservation', reservation_id=r.reservation_id) }}"
+                          id="issue-form-{{ r.reservation_id }}" style="display:none;"></form>
+                    <button type="button" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;"
+                            id="issue-res-btn-{{ r.reservation_id }}"
+                            data-form-id="issue-form-{{ r.reservation_id }}"
+                            data-student="{{ r.student_name }}"
+                            data-model="{{ r.model }}"
+                            onclick="openIssueModal(this.dataset.formId, this.dataset.student, this.dataset.model)">
+                      Issue Bike ✓
+                    </button>
+
+                    <!-- Hidden Cancel Form -->
+                    <form method="post" action="{{ url_for('cancel_reservation_admin', reservation_id=r.reservation_id) }}"
+                          id="admin-cancel-form-{{ r.reservation_id }}" style="display:none;"></form>
+                    <button type="button" class="btn btn-outline btn-sm" style="color:var(--danger); border-color:var(--danger); padding:4px 8px; font-size:0.8rem;"
+                            id="admin-cancel-btn-{{ r.reservation_id }}"
+                            data-form-id="admin-cancel-form-{{ r.reservation_id }}"
+                            data-res-id="{{ r.reservation_id }}"
+                            data-student="{{ r.student_name }}"
+                            data-model="{{ r.model }}"
+                            onclick="openAdminCancelModal(this.dataset.formId, this.dataset.resId, this.dataset.student, this.dataset.model)">
+                      Cancel ✕
+                    </button>
                   </div>
                   {% elif r.status == 'completed' %}
                     <small style="color:var(--success); font-weight:600;">Issued as Rental</small>
@@ -155,11 +218,18 @@
                   {% endif %}
                 {% else %}
                   {% if r.status == 'active' or r.status == 'overdue' %}
-                  <form method="post" action="{{ url_for('return_rental', rental_id=r.rental_id) }}" style="margin:0;">
-                    <button type="submit" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;">
-                      Mark Returned ✓
-                    </button>
-                  </form>
+                  <!-- Hidden Return Form -->
+                  <form method="post" action="{{ url_for('return_rental', rental_id=r.rental_id) }}"
+                        id="return-form-{{ r.rental_id }}" style="display:none;"></form>
+                  <button type="button" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;"
+                          id="return-btn-{{ r.rental_id }}"
+                          data-form-id="return-form-{{ r.rental_id }}"
+                          data-rental-id="{{ r.rental_id }}"
+                          data-student="{{ r.student_name }}"
+                          data-model="{{ r.model }}"
+                          onclick="openReturnModal(this.dataset.formId, this.dataset.rentalId, this.dataset.student, this.dataset.model)">
+                    Mark Returned ✓
+                  </button>
                   {% else %}
                   <small style="color:var(--text-light);">Returned: {{ r.returned_at.strftime('%b %d, %I:%M %p') if r.returned_at else 'Yes' }}</small>
                   {% endif %}
@@ -183,6 +253,51 @@
 </main>
 
 <script>
+  let activeModalFormId = null;
+
+  function closeModal(modalId) {
+    document.getElementById(modalId).classList.remove('active');
+    activeModalFormId = null;
+  }
+
+  function submitActiveModalForm() {
+    if (activeModalFormId) {
+      document.getElementById(activeModalFormId).submit();
+    }
+  }
+
+  function openAdminCancelModal(formId, resId, student, model) {
+    activeModalFormId = formId;
+    document.getElementById('admin-cancel-modal-msg').textContent =
+      `Cancel reservation #RES-${resId} for ${student} (${model})? The bicycle will be restored to the available pool.`;
+    document.getElementById('admin-cancel-modal').classList.add('active');
+  }
+
+  function openIssueModal(formId, student, model) {
+    activeModalFormId = formId;
+    document.getElementById('admin-issue-modal-msg').textContent =
+      `Issue ${model} to ${student}? This converts the reservation into an active 2-day rental.`;
+    document.getElementById('admin-issue-modal').classList.add('active');
+  }
+
+  function openReturnModal(formId, rentalId, student, model) {
+    activeModalFormId = formId;
+    document.getElementById('admin-return-modal-msg').textContent =
+      `Mark Rental #RNT-${rentalId} (${model} from ${student}) as returned? The bicycle will be marked available immediately.`;
+    document.getElementById('admin-return-modal').classList.add('active');
+  }
+
+  // Close modals on overlay backdrop click
+  ['admin-cancel-modal', 'admin-issue-modal', 'admin-return-modal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('click', function(e) {
+        if (e.target === this) closeModal(id);
+      });
+    }
+  });
+
+  // Auto-dismiss flashes
   setTimeout(() => {
     document.querySelectorAll('.flash').forEach(el => {
       el.style.transition = 'opacity .4s';

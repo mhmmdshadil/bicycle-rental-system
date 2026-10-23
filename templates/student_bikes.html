@@ -8,12 +8,6 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
   <style>
     .bikes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
-    .station-header {
-      display: flex; align-items: center; gap: 12px;
-      padding: 14px 0 12px;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 16px;
-    }
     .station-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
   </style>
 </head>
@@ -27,29 +21,47 @@
       CampusCycle
     </a>
     <div class="navbar-links">
-      <a href="{{ url_for('student_dashboard', student_id=student_id) }}" class="nav-link">
+      <a href="{{ url_for('student_dashboard') }}" class="nav-link" id="nav-dashboard">
         <span>🏠</span> <span>Dashboard</span>
       </a>
-      <a href="{{ url_for('student_bikes', student_id=student_id) }}" class="nav-link active">
+      <a href="{{ url_for('student_bikes') }}" class="nav-link active" id="nav-browse">
         <span>🚲</span> <span>Browse</span>
       </a>
-      <a href="{{ url_for('student_notifications', student_id=student_id) }}" class="nav-link">
+      <a href="{{ url_for('student_notifications') }}" class="nav-link" id="nav-rentals">
         <span>🔔</span> <span>My Rentals</span>
       </a>
+      <div class="nav-user">
+        <div class="avatar">{{ session.student_name[0].upper() }}</div>
+        <span>{{ session.student_name.split()[0] }}</span>
+      </div>
+      <a href="{{ url_for('student_logout') }}" class="btn btn-ghost btn-sm" id="logout-btn" style="margin-left:4px;">Sign Out</a>
     </div>
   </div>
 </nav>
 
-<!-- ── Flash Messages ─────────────────────────────────────── -->
+<!-- Flash Messages -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-    <div class="flash-wrap">
+    <div class="flash-wrap" id="flash-container">
       {% for cat, msg in messages %}
         <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
       {% endfor %}
     </div>
   {% endif %}
 {% endwith %}
+
+<!-- Reserve Confirmation Modal -->
+<div class="modal-overlay" id="reserve-modal">
+  <div class="modal">
+    <div class="modal-icon">🚲</div>
+    <h3>Confirm Reservation</h3>
+    <p id="reserve-modal-msg">Reserve this bicycle? You'll have 2 hours to pick it up at the station.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('reserve-modal')" id="cancel-reserve-btn">Cancel</button>
+      <button class="btn btn-primary" id="confirm-reserve-btn" onclick="submitReserveForm()">Reserve →</button>
+    </div>
+  </div>
+</div>
 
 <main>
   <div class="container section">
@@ -58,18 +70,18 @@
     <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
       <div>
         <h1>Browse Bikes 🗺️</h1>
-        <p>Real-time availability across all campus stations.</p>
+        <p>Real-time availability across all campus stations. Tap a bike to reserve it.</p>
       </div>
       <!-- Type Filter Tabs -->
       <div class="filter-tabs">
-        <a href="{{ url_for('student_bikes', student_id=student_id, type='all') }}"
-           class="filter-tab {% if type_filter == 'all' %}active{% endif %}">All Types</a>
-        <a href="{{ url_for('student_bikes', student_id=student_id, type='standard') }}"
-           class="filter-tab {% if type_filter == 'standard' %}active{% endif %}">🚲 Standard</a>
-        <a href="{{ url_for('student_bikes', student_id=student_id, type='electric') }}"
-           class="filter-tab {% if type_filter == 'electric' %}active{% endif %}">⚡ Electric</a>
-        <a href="{{ url_for('student_bikes', student_id=student_id, type='mountain') }}"
-           class="filter-tab {% if type_filter == 'mountain' %}active{% endif %}">🏔 Mountain</a>
+        <a href="{{ url_for('student_bikes', type='all') }}"
+           class="filter-tab {% if type_filter == 'all' %}active{% endif %}" id="filter-all">All Types</a>
+        <a href="{{ url_for('student_bikes', type='standard') }}"
+           class="filter-tab {% if type_filter == 'standard' %}active{% endif %}" id="filter-standard">🚲 Standard</a>
+        <a href="{{ url_for('student_bikes', type='electric') }}"
+           class="filter-tab {% if type_filter == 'electric' %}active{% endif %}" id="filter-electric">⚡ Electric</a>
+        <a href="{{ url_for('student_bikes', type='mountain') }}"
+           class="filter-tab {% if type_filter == 'mountain' %}active{% endif %}" id="filter-mountain">🏔 Mountain</a>
       </div>
     </div>
 
@@ -84,9 +96,9 @@
         <small style="color:var(--text-light);">📍 {{ st.location }}</small>
         <div class="progress-bar mt-16">
           {% set pct = (st.available / st.capacity * 100) | int if st.capacity > 0 else 0 %}
-          <div class="progress-fill" style="width:{{ pct }}%;"></div>
+          <div class="progress-fill" {{ ('style="width: ' ~ pct ~ '%;"') | safe }}></div>
         </div>
-        <small class="mt-8" style="display:block;">{{ st.available }}/{{ st.capacity }} slots filled</small>
+        <small class="mt-8" style="display:block; color:var(--text-light);">{{ st.available }}/{{ st.capacity }} available</small>
       </div>
       {% endfor %}
     </div>
@@ -112,20 +124,21 @@
             <span class="badge badge-{{ bike.type }}">{{ bike.type | capitalize }}</span>
           </div>
         </div>
-        <div style="font-size:.85rem; color:var(--text-light);">
-          📍 {{ bike.station_name }}
-        </div>
-        <div style="font-size:.8rem; color:var(--text-light);">
-          Bike #{{ bike.bicycle_id }}
-        </div>
-        <!-- Reserve Form -->
-        <form method="post" action="{{ url_for('reserve_bicycle', bicycle_id=bike.bicycle_id) }}">
-          <input type="hidden" name="student_id" value="{{ student_id }}">
+        <div style="font-size:.85rem; color:var(--text-light);">📍 {{ bike.station_name }}</div>
+        <div style="font-size:.8rem; color:var(--text-light);">Bike #{{ bike.bicycle_id }}</div>
+        <!-- Reserve Form (hidden, triggered by modal) -->
+        <form method="post" action="{{ url_for('reserve_bicycle', bicycle_id=bike.bicycle_id) }}"
+              class="reserve-form" id="reserve-form-{{ bike.bicycle_id }}" style="display:none;">
           <input type="hidden" name="station_id" value="{{ bike.station_id }}">
-          <button type="submit" class="btn btn-primary btn-sm" style="width:100%; justify-content:center; margin-top:4px;">
-            Reserve →
-          </button>
         </form>
+        <button type="button" class="btn btn-primary btn-sm" style="width:100%; justify-content:center; margin-top:4px;"
+                id="reserve-btn-{{ bike.bicycle_id }}"
+                data-bike-id="{{ bike.bicycle_id }}"
+                data-model="{{ bike.model }}"
+                data-station="{{ bike.station_name }}"
+                onclick="openReserveModal(this.dataset.bikeId, this.dataset.model, this.dataset.station)">
+          Reserve →
+        </button>
       </div>
       {% endfor %}
     </div>
@@ -142,13 +155,39 @@
 </main>
 
 <script>
+  let pendingFormId = null;
+
+  function openReserveModal(bikeId, model, station) {
+    pendingFormId = 'reserve-form-' + bikeId;
+    document.getElementById('reserve-modal-msg').textContent =
+      `Reserve ${model} at ${station}? You'll have 2 hours to pick it up.`;
+    document.getElementById('reserve-modal').classList.add('active');
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+    pendingFormId = null;
+  }
+
+  function submitReserveForm() {
+    if (pendingFormId) {
+      document.getElementById(pendingFormId).submit();
+    }
+  }
+
+  // Close modal on overlay click
+  document.getElementById('reserve-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal('reserve-modal');
+  });
+
+  // Auto-dismiss flashes
   setTimeout(() => {
     document.querySelectorAll('.flash').forEach(el => {
       el.style.transition = 'opacity .4s';
       el.style.opacity = '0';
       setTimeout(() => el.remove(), 400);
     });
-  }, 4000);
+  }, 4500);
 </script>
 </body>
 </html>

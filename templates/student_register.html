@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Create Account – CampusCycle</title>
+  <meta name="description" content="Register for a CampusCycle student account to start renting bicycles on campus." />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<div class="auth-page">
+  <!-- Brand Side -->
+  <div class="auth-brand">
+    <div class="auth-brand-logo">🚲</div>
+    <h2>Join CampusCycle</h2>
+    <p>Create your student account and start riding in minutes.</p>
+    <div class="auth-brand-features">
+      <div class="auth-brand-feature">
+        <span class="feat-icon">🎓</span>
+        <span class="feat-text">For campus students only</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">🔒</span>
+        <span class="feat-text">Secure & private account</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">🚴</span>
+        <span class="feat-text">Instant access after signup</span>
+      </div>
+      <div class="auth-brand-feature">
+        <span class="feat-icon">📋</span>
+        <span class="feat-text">Track your rental history</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Form Side -->
+  <div class="auth-form-panel">
+    <div class="auth-form-box">
+      <a href="{{ url_for('student_login') }}" class="auth-back">← Back to Login</a>
+
+      <!-- Flash Messages -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for cat, msg in messages %}
+            <div class="flash flash-{{ cat }}" style="margin-bottom:16px; animation:none; position:static; min-width:0; width:100%;">
+              {{ '✅' if cat == 'success' else '❌' }} {{ msg }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <h1>Create Account 🎉</h1>
+      <p class="auth-subtitle">Fill in your campus details to get started</p>
+
+      <form method="post" action="{{ url_for('student_register') }}" id="register-form">
+        <div class="form-group">
+          <label class="form-label" for="name">Full Name</label>
+          <div class="form-input-icon">
+            <span class="input-icon">👤</span>
+            <input
+              class="form-input" type="text" id="name" name="name"
+              placeholder="e.g. Arjun Mehta"
+              value="{{ form_data.get('name', '') }}"
+              required minlength="2" maxlength="150"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="email">Campus Email</label>
+          <div class="form-input-icon">
+            <span class="input-icon">✉️</span>
+            <input
+              class="form-input" type="email" id="email" name="email"
+              placeholder="e.g. arjun@campus.edu"
+              value="{{ form_data.get('email', '') }}"
+              required autocomplete="email"
+            />
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="roll_number">Roll Number</label>
+            <input
+              class="form-input" type="text" id="roll_number" name="roll_number"
+              placeholder="e.g. CS2021001"
+              value="{{ form_data.get('roll_number', '') }}"
+              required style="text-transform:uppercase;"
+            />
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="phone">Phone (optional)</label>
+            <input
+              class="form-input" type="tel" id="phone" name="phone"
+              placeholder="10-digit number"
+              value="{{ form_data.get('phone', '') }}"
+              maxlength="10" pattern="\d{10}"
+            />
+          </div>
+        </div>
+        <div style="height:18px;"></div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <div class="pw-wrap">
+            <input
+              class="form-input" type="password" id="password" name="password"
+              placeholder="At least 8 characters"
+              required minlength="8" autocomplete="new-password"
+            />
+            <button type="button" class="pw-toggle" onclick="togglePw('password', this)" aria-label="Toggle password">👁</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="confirm_password">Confirm Password</label>
+          <div class="pw-wrap">
+            <input
+              class="form-input" type="password" id="confirm_password" name="confirm_password"
+              placeholder="Re-enter your password"
+              required autocomplete="new-password"
+            />
+            <button type="button" class="pw-toggle" onclick="togglePw('confirm_password', this)" aria-label="Toggle password">👁</button>
+          </div>
+          <small id="pw-match-msg" style="color:var(--danger); display:none; margin-top:4px;">Passwords do not match</small>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-auth" id="register-submit-btn">
+          Create Account →
+        </button>
+      </form>
+
+      <div class="auth-footer" style="margin-top:20px;">
+        Already have an account? <a href="{{ url_for('student_login') }}" id="login-link">Sign in →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function togglePw(id, btn) {
+    const el = document.getElementById(id);
+    el.type = el.type === 'password' ? 'text' : 'password';
+    btn.textContent = el.type === 'password' ? '👁' : '🙈';
+  }
+
+  // Real-time password match check
+  const pw   = document.getElementById('password');
+  const cpw  = document.getElementById('confirm_password');
+  const msg  = document.getElementById('pw-match-msg');
+  const form = document.getElementById('register-form');
+
+  function checkMatch() {
+    if (cpw.value && pw.value !== cpw.value) {
+      msg.style.display = 'block';
+      cpw.style.borderColor = 'var(--danger)';
+    } else {
+      msg.style.display = 'none';
+      cpw.style.borderColor = '';
+    }
+  }
+  cpw.addEventListener('input', checkMatch);
+  pw.addEventListener('input', checkMatch);
+
+  form.addEventListener('submit', (e) => {
+    if (pw.value !== cpw.value) {
+      e.preventDefault();
+      checkMatch();
+    }
+  });
+</script>
+</body>
+</html>

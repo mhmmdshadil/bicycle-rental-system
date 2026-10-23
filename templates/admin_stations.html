@@ -82,7 +82,7 @@
         <!-- Progress bar -->
         <div class="progress-bar">
           {% set occ = (st.total / st.capacity * 100) | int if st.capacity > 0 else 0 %}
-          <div class="progress-fill" style="width: {{ occ }}%;"></div>
+          <div class="progress-fill" {{ ('style="width: ' ~ occ ~ '%;"') | safe }}></div>
         </div>
 
         <div class="flex-between mt-8" style="font-size: 0.8rem; color: var(--text-light);">
