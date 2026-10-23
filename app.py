@@ -227,6 +227,45 @@ def reserve_bicycle(bicycle_id):
     return redirect(url_for("student_notifications", student_id=student_id))
 
 
+@app.route("/student/unreserve/<int:reservation_id>", methods=["POST"])
+def unreserve_bicycle(reservation_id):
+    """Cancel/unreserve a reservation and return the bicycle to available status."""
+    student_id = request.form.get("student_id", type=int)
+    if not student_id:
+        student_id = request.args.get("student_id", 1, type=int)
+
+    reservation = query(
+        "SELECT * FROM reservations WHERE reservation_id = %s",
+        (reservation_id,),
+        fetch="one",
+    )
+
+    if not reservation:
+        flash("Reservation not found.", "error")
+        return redirect(url_for("student_notifications", student_id=student_id))
+
+    if reservation["status"] not in ("pending", "confirmed"):
+        flash("This reservation is no longer active and cannot be unreserved.", "error")
+        return redirect(url_for("student_notifications", student_id=student_id))
+
+    # Mark reservation as cancelled
+    ok = execute(
+        "UPDATE reservations SET status = 'cancelled' WHERE reservation_id = %s",
+        (reservation_id,),
+    )
+    if ok:
+        # Restore bicycle status to available
+        execute(
+            "UPDATE bicycles SET status = 'available' WHERE bicycle_id = %s AND status = 'reserved'",
+            (reservation["bicycle_id"],),
+        )
+        flash("Reservation cancelled successfully! Bicycle has been unreserved.", "success")
+    else:
+        flash("Failed to unreserve the bicycle. Please try again.", "error")
+
+    return redirect(url_for("student_notifications", student_id=student_id))
+
+
 @app.route("/student/notifications")
 def student_notifications():
     """
@@ -297,27 +336,43 @@ def admin_dashboard():
     overdue_rentals= query("SELECT COUNT(*) AS cnt FROM rentals WHERE status='overdue'", fetch="one")
     total_students = query("SELECT COUNT(*) AS cnt FROM students", fetch="one")
 
-    # Recent rentals (last 5)
-    recent_rentals = query(
-        """SELECT r.rental_id, r.issued_at, r.status,
+    pending_reservations = query(
+        "SELECT COUNT(*) AS cnt FROM reservations WHERE status IN ('pending', 'confirmed')",
+        fetch="one",
+    )
+
+    # Recent activity (rentals + reservations)
+    recent_rentals_list = query(
+        """SELECT r.rental_id, 'rental' AS record_type, r.issued_at, r.status,
                   st.name AS student_name, st.roll_number,
                   b.model, b.type
            FROM rentals r
            JOIN students st ON r.student_id = st.student_id
-           JOIN bicycles b  ON r.bicycle_id  = b.bicycle_id
-           ORDER BY r.issued_at DESC
-           LIMIT 5"""
+           JOIN bicycles b  ON r.bicycle_id  = b.bicycle_id"""
     )
+    recent_res_list = query(
+        """SELECT res.reservation_id AS rental_id, 'reservation' AS record_type,
+                  res.reserved_at AS issued_at, res.status,
+                  st.name AS student_name, st.roll_number,
+                  b.model, b.type
+           FROM reservations res
+           JOIN students st ON res.student_id = st.student_id
+           JOIN bicycles b  ON res.bicycle_id  = b.bicycle_id"""
+    )
+    recent_activity = (recent_rentals_list or []) + (recent_res_list or [])
+    recent_activity.sort(key=lambda x: x["issued_at"] or datetime.min, reverse=True)
+    recent_rentals = recent_activity[:6]
 
     return render_template(
         "admin_dashboard.html",
-        total_stations  = total_stations["cnt"]  if total_stations  else 0,
-        total_bikes     = total_bikes["cnt"]      if total_bikes     else 0,
-        available_bikes = available_bikes["cnt"]  if available_bikes else 0,
-        active_rentals  = active_rentals["cnt"]   if active_rentals  else 0,
-        overdue_rentals = overdue_rentals["cnt"]  if overdue_rentals else 0,
-        total_students  = total_students["cnt"]   if total_students  else 0,
-        recent_rentals  = recent_rentals,
+        total_stations       = total_stations["cnt"]       if total_stations       else 0,
+        total_bikes          = total_bikes["cnt"]          if total_bikes          else 0,
+        available_bikes      = available_bikes["cnt"]      if available_bikes      else 0,
+        active_rentals       = active_rentals["cnt"]       if active_rentals       else 0,
+        overdue_rentals      = overdue_rentals["cnt"]      if overdue_rentals      else 0,
+        total_students       = total_students["cnt"]       if total_students       else 0,
+        pending_reservations = pending_reservations["cnt"] if pending_reservations else 0,
+        recent_rentals       = recent_rentals,
     )
 
 
@@ -372,39 +427,58 @@ def update_bike_status():
 def admin_rentals():
     """
     Rental Records – full list with student, bicycle, station details.
-    Filterable by status.
+    Includes active/past rentals as well as bicycle reservations.
+    Filterable by status ('all', 'active', 'reserved', 'overdue', 'returned').
     """
     status_filter = request.args.get("status", "all")
 
-    if status_filter != "all":
-        rentals = query(
-            """SELECT r.rental_id, r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
-                      st.name AS student_name, st.roll_number, st.email,
-                      b.bicycle_id, b.model, b.type,
-                      s.name AS station_name
-               FROM rentals r
-               JOIN students st ON r.student_id = st.student_id
-               JOIN bicycles b  ON r.bicycle_id  = b.bicycle_id
-               JOIN stations s  ON b.station_id  = s.station_id
-               WHERE r.status = %s
-               ORDER BY r.issued_at DESC""",
-            (status_filter,),
-        )
+    rentals_base = """
+        SELECT r.rental_id AS record_id, r.rental_id, 'rental' AS record_type,
+               r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
+               st.name AS student_name, st.roll_number, st.email,
+               b.bicycle_id, b.model, b.type,
+               s.name AS station_name
+        FROM rentals r
+        JOIN students st ON r.student_id = st.student_id
+        JOIN bicycles b  ON r.bicycle_id  = b.bicycle_id
+        JOIN stations s  ON b.station_id  = s.station_id
+    """
+
+    res_base = """
+        SELECT res.reservation_id AS record_id, res.reservation_id, 'reservation' AS record_type,
+               res.reserved_at AS issued_at, res.expires_at AS due_at,
+               NULL AS returned_at, res.status, 'Online Reservation' AS issued_by,
+               st.name AS student_name, st.roll_number, st.email,
+               b.bicycle_id, b.model, b.type,
+               s.name AS station_name
+        FROM reservations res
+        JOIN students st ON res.student_id = st.student_id
+        JOIN bicycles b  ON res.bicycle_id  = b.bicycle_id
+        JOIN stations s  ON res.station_id  = s.station_id
+    """
+
+    if status_filter == "reserved":
+        records = query(res_base + " ORDER BY res.reserved_at DESC") or []
+    elif status_filter in ("active", "overdue", "returned"):
+        records = query(rentals_base + " WHERE r.status = %s ORDER BY r.issued_at DESC", (status_filter,)) or []
     else:
-        rentals = query(
-            """SELECT r.rental_id, r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
-                      st.name AS student_name, st.roll_number, st.email,
-                      b.bicycle_id, b.model, b.type,
-                      s.name AS station_name
-               FROM rentals r
-               JOIN students st ON r.student_id = st.student_id
-               JOIN bicycles b  ON r.bicycle_id  = b.bicycle_id
-               JOIN stations s  ON b.station_id  = s.station_id
-               ORDER BY r.issued_at DESC"""
-        )
+        rentals_all = query(rentals_base) or []
+        reservations_all = query(res_base) or []
+        records = rentals_all + reservations_all
+        records.sort(key=lambda x: x["issued_at"] or datetime.min, reverse=True)
+
+    # Active reservations count for filter badge
+    res_count = query(
+        "SELECT COUNT(*) AS cnt FROM reservations WHERE status IN ('pending', 'confirmed')",
+        fetch="one",
+    )
+    reserved_count = res_count["cnt"] if res_count else 0
 
     return render_template(
-        "admin_rentals.html", rentals=rentals, status_filter=status_filter
+        "admin_rentals.html",
+        rentals=records,
+        status_filter=status_filter,
+        reserved_count=reserved_count,
     )
 
 
@@ -414,7 +488,7 @@ def return_rental(rental_id):
     rental = query(
         "SELECT * FROM rentals WHERE rental_id = %s", (rental_id,), fetch="one"
     )
-    if rental and rental["status"] == "active":
+    if rental and rental["status"] in ("active", "overdue"):
         execute(
             "UPDATE rentals SET status='returned', returned_at=NOW() WHERE rental_id=%s",
             (rental_id,),
@@ -426,6 +500,61 @@ def return_rental(rental_id):
         flash(f"Rental #{rental_id} marked as returned.", "success")
     else:
         flash("Rental not found or already returned.", "error")
+    return redirect(url_for("admin_rentals"))
+
+
+@app.route("/admin/reservations/issue/<int:reservation_id>", methods=["POST"])
+def issue_reservation(reservation_id):
+    """Admin: issue a reserved bicycle to student (converts reservation into active rental)."""
+    res = query(
+        "SELECT * FROM reservations WHERE reservation_id = %s",
+        (reservation_id,),
+        fetch="one",
+    )
+    if res and res["status"] in ("pending", "confirmed"):
+        due_at = datetime.now() + timedelta(days=2)
+        # Mark reservation completed
+        execute(
+            "UPDATE reservations SET status = 'completed' WHERE reservation_id = %s",
+            (reservation_id,),
+        )
+        # Create active rental record in rentals table
+        execute(
+            """INSERT INTO rentals (student_id, bicycle_id, issued_at, due_at, status, issued_by)
+               VALUES (%s, %s, NOW(), %s, 'active', 'Staff')""",
+            (res["student_id"], res["bicycle_id"], due_at),
+        )
+        # Mark bicycle as rented
+        execute(
+            "UPDATE bicycles SET status = 'rented' WHERE bicycle_id = %s",
+            (res["bicycle_id"],),
+        )
+        flash(f"Reservation #{reservation_id} issued successfully as an active rental.", "success")
+    else:
+        flash("Reservation not found or cannot be issued.", "error")
+    return redirect(url_for("admin_rentals"))
+
+
+@app.route("/admin/reservations/cancel/<int:reservation_id>", methods=["POST"])
+def cancel_reservation_admin(reservation_id):
+    """Admin: cancel a reservation and make bicycle available again."""
+    res = query(
+        "SELECT * FROM reservations WHERE reservation_id = %s",
+        (reservation_id,),
+        fetch="one",
+    )
+    if res and res["status"] in ("pending", "confirmed"):
+        execute(
+            "UPDATE reservations SET status = 'cancelled' WHERE reservation_id = %s",
+            (reservation_id,),
+        )
+        execute(
+            "UPDATE bicycles SET status = 'available' WHERE bicycle_id = %s AND status = 'reserved'",
+            (res["bicycle_id"],),
+        )
+        flash(f"Reservation #{reservation_id} cancelled. Bicycle returned to available.", "success")
+    else:
+        flash("Reservation not found or already closed.", "error")
     return redirect(url_for("admin_rentals"))
 
 

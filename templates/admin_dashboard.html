@@ -97,6 +97,13 @@
       </div>
 
       <div class="stat-card">
+        <div class="stat-icon" style="background:#e8eaf6;">📌</div>
+        <div class="stat-value">{{ pending_reservations }}</div>
+        <div class="stat-label">Pending Reservations</div>
+        <small style="color:var(--text-light); margin-top:4px;">Awaiting student pickup</small>
+      </div>
+
+      <div class="stat-card">
         <div class="stat-icon" style="background:#e8eaf6;">🎓</div>
         <div class="stat-value">{{ total_students }}</div>
         <div class="stat-label">Registered Students</div>
@@ -105,7 +112,7 @@
 
       <div class="stat-card" style="justify-content:center; background:#faf7f4;">
         <h3 style="font-size:1rem; margin-bottom:6px;">Need to issue or return?</h3>
-        <p style="font-size:0.85rem; margin-bottom:12px;">Track staff-handled checkout and check-in records.</p>
+        <p style="font-size:0.85rem; margin-bottom:12px;">Track staff-handled checkout, check-in, and reservation records.</p>
         <a href="{{ url_for('admin_rentals') }}" class="btn btn-primary btn-sm">
           Go to Rental Records →
         </a>
@@ -115,7 +122,7 @@
     <!-- Recent Activity Table -->
     <div class="card" style="padding:24px 28px;">
       <div class="flex-between mb-16">
-        <h2>Recent Rental Activity</h2>
+        <h2>Recent Rental & Reservation Activity</h2>
         <a href="{{ url_for('admin_rentals') }}" class="btn btn-outline btn-sm">View All Records →</a>
       </div>
 
@@ -129,14 +136,22 @@
               <th>Roll Number</th>
               <th>Bicycle Model</th>
               <th>Type</th>
-              <th>Issued At</th>
+              <th>Activity Time</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {% for r in recent_rentals %}
             <tr>
-              <td><strong>#{{ r.rental_id }}</strong></td>
+              <td>
+                {% if r.record_type == 'reservation' %}
+                  <strong>#RES-{{ r.rental_id }}</strong>
+                  <span class="badge badge-reserved" style="font-size:0.65rem; padding:1px 5px; margin-left:4px;">Reservation</span>
+                {% else %}
+                  <strong>#R-{{ r.rental_id }}</strong>
+                  <span class="badge badge-standard" style="font-size:0.65rem; padding:1px 5px; margin-left:4px;">Rental</span>
+                {% endif %}
+              </td>
               <td><strong>{{ r.student_name }}</strong></td>
               <td><code>{{ r.roll_number }}</code></td>
               <td>{{ r.model }}</td>

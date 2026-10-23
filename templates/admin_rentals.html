@@ -59,7 +59,14 @@
         <a href="{{ url_for('admin_rentals', status='all') }}"
            class="filter-tab {% if status_filter == 'all' %}active{% endif %}">All Records</a>
         <a href="{{ url_for('admin_rentals', status='active') }}"
-           class="filter-tab {% if status_filter == 'active' %}active{% endif %}">Active</a>
+           class="filter-tab {% if status_filter == 'active' %}active{% endif %}">Active Rentals</a>
+        <a href="{{ url_for('admin_rentals', status='reserved') }}"
+           class="filter-tab {% if status_filter == 'reserved' %}active{% endif %}">
+           Reserved
+           {% if reserved_count > 0 %}
+             <span class="nav-badge" style="background:var(--primary); font-size:0.72rem; padding:2px 7px; margin-left:4px;">{{ reserved_count }}</span>
+           {% endif %}
+        </a>
         <a href="{{ url_for('admin_rentals', status='overdue') }}"
            class="filter-tab {% if status_filter == 'overdue' %}active{% endif %}">Overdue</a>
         <a href="{{ url_for('admin_rentals', status='returned') }}"
@@ -74,21 +81,29 @@
         <table>
           <thead>
             <tr>
-              <th>Rental ID</th>
+              <th>Record ID</th>
               <th>Student Details</th>
               <th>Bicycle</th>
               <th>Pickup Station</th>
-              <th>Issued Time</th>
-              <th>Due Deadline</th>
+              <th>Issued / Reserved</th>
+              <th>Due / Expiry</th>
               <th>Status</th>
-              <th>Staff Handler</th>
+              <th>Type / Handler</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {% for r in rentals %}
             <tr class="{% if r.status == 'overdue' %}overdue-row{% endif %}">
-              <td><strong>#{{ r.rental_id }}</strong></td>
+              <td>
+                {% if r.record_type == 'reservation' %}
+                  <strong>#RES-{{ r.reservation_id }}</strong>
+                  <div><span class="badge badge-reserved" style="font-size:0.68rem; padding:2px 6px; margin-top:2px;">Reservation</span></div>
+                {% else %}
+                  <strong>#R-{{ r.rental_id }}</strong>
+                  <div><span class="badge badge-standard" style="font-size:0.68rem; padding:2px 6px; margin-top:2px;">Rental</span></div>
+                {% endif %}
+              </td>
               <td>
                 <div style="font-weight:600;">{{ r.student_name }}</div>
                 <small style="color:var(--text-light);">{{ r.roll_number }} · {{ r.email }}</small>
@@ -100,9 +115,17 @@
               <td>📍 {{ r.station_name }}</td>
               <td>{{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}</td>
               <td>
-                <span style="font-weight:600; {% if r.status == 'overdue' %}color:var(--danger);{% endif %}">
-                  {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
-                </span>
+                {% if r.record_type == 'reservation' %}
+                  <span style="font-weight:600; color:var(--primary);">
+                    {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
+                  </span>
+                  <div style="font-size:0.75rem; color:var(--text-light);">Expires</div>
+                {% else %}
+                  <span style="font-weight:600; {% if r.status == 'overdue' %}color:var(--danger);{% endif %}">
+                    {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
+                  </span>
+                  <div style="font-size:0.75rem; color:var(--text-light);">Due</div>
+                {% endif %}
               </td>
               <td>
                 <span class="badge badge-{{ r.status }}">
@@ -111,14 +134,35 @@
               </td>
               <td>{{ r.issued_by or 'Staff' }}</td>
               <td>
-                {% if r.status == 'active' or r.status == 'overdue' %}
-                <form method="post" action="{{ url_for('return_rental', rental_id=r.rental_id) }}" style="margin:0;">
-                  <button type="submit" class="btn btn-success btn-sm">
-                    Mark Returned ✓
-                  </button>
-                </form>
+                {% if r.record_type == 'reservation' %}
+                  {% if r.status in ['pending', 'confirmed'] %}
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <form method="post" action="{{ url_for('issue_reservation', reservation_id=r.reservation_id) }}" style="margin:0;">
+                      <button type="submit" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;">
+                        Issue Bike ✓
+                      </button>
+                    </form>
+                    <form method="post" action="{{ url_for('cancel_reservation_admin', reservation_id=r.reservation_id) }}" style="margin:0;" onsubmit="return confirm('Cancel this reservation?');">
+                      <button type="submit" class="btn btn-outline btn-sm" style="color:var(--danger); border-color:var(--danger); padding:4px 8px; font-size:0.8rem;">
+                        Cancel ✕
+                      </button>
+                    </form>
+                  </div>
+                  {% elif r.status == 'completed' %}
+                    <small style="color:var(--success); font-weight:600;">Issued as Rental</small>
+                  {% elif r.status == 'cancelled' %}
+                    <small style="color:var(--text-light);">Cancelled</small>
+                  {% endif %}
                 {% else %}
-                <small style="color:var(--text-light);">Returned: {{ r.returned_at.strftime('%b %d, %I:%M %p') if r.returned_at else 'Yes' }}</small>
+                  {% if r.status == 'active' or r.status == 'overdue' %}
+                  <form method="post" action="{{ url_for('return_rental', rental_id=r.rental_id) }}" style="margin:0;">
+                    <button type="submit" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;">
+                      Mark Returned ✓
+                    </button>
+                  </form>
+                  {% else %}
+                  <small style="color:var(--text-light);">Returned: {{ r.returned_at.strftime('%b %d, %I:%M %p') if r.returned_at else 'Yes' }}</small>
+                  {% endif %}
                 {% endif %}
               </td>
             </tr>

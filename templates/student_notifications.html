@@ -146,6 +146,7 @@
               <th>Reserved At</th>
               <th>Expires At</th>
               <th>Status</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -167,6 +168,18 @@
                 <span class="badge badge-{{ res.status }}">
                   {{ res.status | capitalize }}
                 </span>
+              </td>
+              <td>
+                {% if res.status in ['pending', 'confirmed'] %}
+                <form method="post" action="{{ url_for('unreserve_bicycle', reservation_id=res.reservation_id) }}" style="margin:0; display:inline;" onsubmit="return confirm('Are you sure you want to unreserve this bicycle?');">
+                  <input type="hidden" name="student_id" value="{{ student_id }}">
+                  <button type="submit" class="btn btn-danger btn-sm" style="padding: 4px 10px; font-size: 0.8rem;">
+                    Unreserve
+                  </button>
+                </form>
+                {% else %}
+                <span style="color:var(--text-light); font-size: 0.85rem;">—</span>
+                {% endif %}
               </td>
             </tr>
             {% endfor %}
