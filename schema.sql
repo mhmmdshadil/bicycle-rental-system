@@ -40,12 +40,13 @@ CREATE TABLE IF NOT EXISTS bicycles (
 -- Campus students who can rent bicycles
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS students (
-    student_id   INT AUTO_INCREMENT PRIMARY KEY,
-    name         VARCHAR(150) NOT NULL,
-    email        VARCHAR(150) NOT NULL UNIQUE,
-    phone        VARCHAR(20),
-    roll_number  VARCHAR(30)  NOT NULL UNIQUE,
-    created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+    student_id    INT AUTO_INCREMENT PRIMARY KEY,
+    name          VARCHAR(150) NOT NULL,
+    email         VARCHAR(150) NOT NULL UNIQUE,
+    phone         VARCHAR(20),
+    roll_number   VARCHAR(30)  NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL DEFAULT '',
+    created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ------------------------------------------------------------
@@ -80,6 +81,20 @@ CREATE TABLE IF NOT EXISTS reservations (
     FOREIGN KEY (student_id)  REFERENCES students(student_id)  ON DELETE CASCADE,
     FOREIGN KEY (bicycle_id)  REFERENCES bicycles(bicycle_id)  ON DELETE CASCADE,
     FOREIGN KEY (station_id)  REFERENCES stations(station_id)  ON DELETE CASCADE
+);
+
+-- ------------------------------------------------------------
+-- Table: staff
+-- Admin and staff accounts for the management portal
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS staff (
+    staff_id      INT AUTO_INCREMENT PRIMARY KEY,
+    name          VARCHAR(150) NOT NULL,
+    email         VARCHAR(150) NOT NULL UNIQUE,
+    phone         VARCHAR(20)  DEFAULT NULL,
+    role          ENUM('admin','staff','manager') NOT NULL DEFAULT 'staff',
+    password_hash VARCHAR(255) NOT NULL DEFAULT '',
+    created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -129,3 +144,15 @@ INSERT INTO reservations (student_id, bicycle_id, station_id, reserved_at, expir
     (1, 8, 2, NOW() - INTERVAL 30 MINUTE, NOW() + INTERVAL 30 MINUTE, 'pending'),
     (2, 3, 1, NOW() - INTERVAL 1 HOUR,    NOW() + INTERVAL 2 HOUR,    'confirmed'),
     (3, 7, 2, NOW() - INTERVAL 2 HOUR,    NOW() - INTERVAL 1 HOUR,    'cancelled');
+
+-- Default admin account
+--   Email:    admin@campuscycle.edu
+--   Password: Admin@123  (hashed with werkzeug scrypt)
+INSERT INTO staff (name, email, phone, role, password_hash)
+VALUES (
+    'System Administrator',
+    'admin@campuscycle.edu',
+    '9000000000',
+    'admin',
+    'scrypt:32768:8:1$hvx9jGzGfE6VJhL4$2dc57e64ac3e8210cb60dc59867313fff464d1f14c44e5da07068163f1213247c33468184c6b5c61155fa569816e720833d737b566ef2db818082c388e69a056'
+) ON DUPLICATE KEY UPDATE name = name;
