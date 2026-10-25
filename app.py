@@ -21,10 +21,11 @@ app.secret_key = "bicycle_rental_secret_key"
 # Database Configuration
 # ─────────────────────────────────────────
 DB_CONFIG = {
-    "host":     "localhost",
-    "user":     "root",
-    "password": os.environ.get("DB_PASSWORD", "Shadil@12"),  # env var preferred, falls back to local
-    "database": "bicycle_rental_db",
+    "host":     os.environ.get("DB_HOST", "localhost"),
+    "user":     os.environ.get("DB_USER", "root"),
+    "password": os.environ.get("DB_PASSWORD", "Shadil@12"),
+    "database": os.environ.get("DB_NAME", "bicycle_rental_db"),
+    "port":     int(os.environ.get("DB_PORT", 3306)),
     "charset":  "utf8mb4",
 }
 
@@ -32,7 +33,12 @@ DB_CONFIG = {
 def get_db_connection():
     """Return a fresh MySQL connection, or None on failure."""
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
+        config = dict(DB_CONFIG)
+        if os.environ.get("DB_SSL", "").lower() in ("true", "1", "yes"):
+            config["ssl_disabled"] = False
+            config["ssl_verify_cert"] = False
+            config["ssl_verify_identity"] = False
+        conn = mysql.connector.connect(**config)
         return conn
     except Error as e:
         print(f"[DB ERROR] {e}")
