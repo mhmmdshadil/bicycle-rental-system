@@ -24,9 +24,11 @@
         <span>🚲</span> <span>Browse</span>
       </a>
       <a href="{{ url_for('student_notifications') }}" class="nav-link" id="nav-rentals">
-        <span>🔔</span> <span>My Rentals</span>
-        {% if active_rentals > 0 %}
-          <span class="nav-badge">{{ active_rentals }}</span>
+        <span>🔔</span> <span>My Rentals & Alerts</span>
+        {% if unread_notifications > 0 %}
+          <span class="nav-badge">{{ unread_notifications }}</span>
+        {% elif active_rentals > 0 %}
+          <span class="nav-badge" style="background:var(--primary);">{{ active_rentals }}</span>
         {% endif %}
       </a>
       <!-- User info + logout -->

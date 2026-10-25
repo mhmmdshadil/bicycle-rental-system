@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Manage Stations & Bikes – CampusCycle</title>
-  <meta name="description" content="Manage station capacity, docking availability, and bicycle operational status." />
+  <title>Manage Stations & Fleet – CampusCycle Admin</title>
+  <meta name="description" content="Add and manage campus docking stations, bicycle inventory, capacity, and operational status." />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
   <style>
     .status-select {
@@ -15,6 +15,23 @@
       background: #fff;
       font-family: inherit;
     }
+    .station-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+    .table-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: nowrap;
+    }
+    .search-bar {
+      max-width: 280px;
+      width: 100%;
+    }
   </style>
 </head>
 <body>
@@ -24,21 +41,24 @@
   <div class="container">
     <a href="{{ url_for('index') }}" class="navbar-brand">
       <div class="logo-icon" style="background: #2b3a4a;">🚲</div>
-      CampusCycle <span style="font-size:0.75rem; background:#ede9e4; color:#555; padding:2px 8px; border-radius:12px; margin-left:6px; font-weight:600;">Admin</span>
+      CampusCycle <span class="admin-tag">Admin</span>
     </a>
     <div class="navbar-links">
-      <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
+      <a href="{{ url_for('admin_dashboard') }}" class="nav-link" id="nav-admin-dash">
         <span>📊</span> <span>Dashboard</span>
       </a>
-      <a href="{{ url_for('admin_stations') }}" class="nav-link active">
+      <a href="{{ url_for('admin_stations') }}" class="nav-link active" id="nav-admin-stations">
         <span>🚉</span> <span>Stations & Bikes</span>
       </a>
-      <a href="{{ url_for('admin_rentals') }}" class="nav-link">
+      <a href="{{ url_for('admin_rentals') }}" class="nav-link" id="nav-admin-rentals">
         <span>📋</span> <span>Rental Records</span>
       </a>
-      <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline btn-sm" style="margin-left:8px;">
-        Student View ↗
-      </a>
+      <div class="nav-user" style="background:#2b3a4a1a; border-color:#2b3a4a33; color:#2b3a4a;">
+        <div class="avatar" style="background:#2b3a4a;">{{ session.staff_name[0].upper() if session.staff_name else 'A' }}</div>
+        <span>{{ session.staff_name.split()[0] if session.staff_name else 'Admin' }}</span>
+        <span class="badge badge-{{ session.staff_role or 'admin' }}" style="padding:2px 8px; font-size:.68rem;">{{ (session.staff_role or 'admin') | capitalize }}</span>
+      </div>
+      <a href="{{ url_for('admin_logout') }}" class="btn btn-ghost btn-sm" id="admin-logout-btn" style="margin-left:4px;">Sign Out</a>
     </div>
   </div>
 </nav>
@@ -46,7 +66,7 @@
 <!-- ── Flash Messages ─────────────────────────────────────── -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-    <div class="flash-wrap">
+    <div class="flash-wrap" id="flash-container">
       {% for cat, msg in messages %}
         <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
       {% endfor %}
@@ -54,67 +74,316 @@
   {% endif %}
 {% endwith %}
 
+<!-- ══════════════════════════════════════════════════════════
+     MODAL WINDOWS FOR STATIONS & BICYCLES
+     ══════════════════════════════════════════════════════════ -->
+
+<!-- 1. Window: Add Station -->
+<div class="modal-overlay" id="add-station-modal">
+  <div class="modal-window">
+    <div class="modal-window-header">
+      <div class="modal-window-title">
+        <span>🚉</span> Add New Docking Station
+      </div>
+      <button type="button" class="modal-window-close" onclick="closeModal('add-station-modal')">✕</button>
+    </div>
+    <form method="post" action="{{ url_for('add_station') }}">
+      <div class="form-group">
+        <label class="form-label" for="add-st-name">Station Name *</label>
+        <input type="text" id="add-st-name" name="name" class="form-input" placeholder="e.g. Science Block North Hub" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="add-st-loc">Campus Location *</label>
+        <input type="text" id="add-st-loc" name="location" class="form-input" placeholder="e.g. Near Physics Labs & East Cafeteria" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="add-st-cap">Docking Capacity (Max Bikes) *</label>
+        <input type="number" id="add-st-cap" name="capacity" class="form-input" min="1" max="100" value="12" required />
+        <small style="color:var(--text-light); margin-top:4px; display:block;">Total physical docks available at this station.</small>
+      </div>
+      <div class="modal-window-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('add-station-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="submit-add-station-btn">Create Station 🚉</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 2. Window: Edit Station -->
+<div class="modal-overlay" id="edit-station-modal">
+  <div class="modal-window">
+    <div class="modal-window-header">
+      <div class="modal-window-title">
+        <span>✏️</span> Edit Docking Station
+      </div>
+      <button type="button" class="modal-window-close" onclick="closeModal('edit-station-modal')">✕</button>
+    </div>
+    <form method="post" action="{{ url_for('edit_station') }}">
+      <input type="hidden" id="edit-st-id" name="station_id" />
+      <div class="form-group">
+        <label class="form-label" for="edit-st-name">Station Name *</label>
+        <input type="text" id="edit-st-name" name="name" class="form-input" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-st-loc">Campus Location *</label>
+        <input type="text" id="edit-st-loc" name="location" class="form-input" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-st-cap">Docking Capacity *</label>
+        <input type="number" id="edit-st-cap" name="capacity" class="form-input" min="1" max="100" required />
+      </div>
+      <div class="modal-window-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('edit-station-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="submit-edit-station-btn">Save Changes ✓</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 3. Window: Delete Station Confirmation -->
+<div class="modal-overlay" id="delete-station-modal">
+  <div class="modal">
+    <div class="modal-icon">⚠️</div>
+    <h3>Delete Docking Station?</h3>
+    <p id="delete-station-msg">Are you sure you want to remove this station? Stations with bicycles assigned cannot be deleted.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('delete-station-modal')">Cancel</button>
+      <form id="delete-station-form" method="post" action="" style="margin:0;">
+        <button type="submit" class="btn btn-danger" id="confirm-delete-station-btn">Delete Station</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 4. Window: Add Bicycle -->
+<div class="modal-overlay" id="add-bicycle-modal">
+  <div class="modal-window">
+    <div class="modal-window-header">
+      <div class="modal-window-title">
+        <span>🚲</span> Add Bicycle to Fleet
+      </div>
+      <button type="button" class="modal-window-close" onclick="closeModal('add-bicycle-modal')">✕</button>
+    </div>
+    {% if stations %}
+    <form method="post" action="{{ url_for('add_bicycle') }}">
+      <div class="form-group">
+        <label class="form-label" for="add-bike-station">Assign to Station *</label>
+        <select id="add-bike-station" name="station_id" class="form-input" required>
+          {% for st in stations %}
+            <option value="{{ st.station_id }}">
+              {{ st.name }} ({{ st.total }}/{{ st.capacity }} occupied - {{ st.capacity - st.total }} slots free)
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="add-bike-model">Bicycle Model / Name *</label>
+        <input type="text" id="add-bike-model" name="model" class="form-input" placeholder="e.g. Trek FX 2 Disc, Giant Escape 3" required />
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label" for="add-bike-type">Type *</label>
+          <select id="add-bike-type" name="type" class="form-input">
+            <option value="standard">Standard Cruiser</option>
+            <option value="electric">Electric (e-Bike)</option>
+            <option value="mountain">Mountain Bike</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="add-bike-status">Initial Status *</label>
+          <select id="add-bike-status" name="status" class="form-input">
+            <option value="available">Available</option>
+            <option value="maintenance">Maintenance / Service</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-window-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('add-bicycle-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="submit-add-bike-btn">Add Bicycle 🚲</button>
+      </div>
+    </form>
+    {% else %}
+    <div style="text-align:center; padding:24px 0;">
+      <p>⚠️ No docking stations exist yet. Please create at least one station before adding bicycles.</p>
+      <button type="button" class="btn btn-primary mt-16" onclick="closeModal('add-bicycle-modal'); openModal('add-station-modal');">
+        + Create Station First
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 5. Window: Edit Bicycle -->
+<div class="modal-overlay" id="edit-bicycle-modal">
+  <div class="modal-window">
+    <div class="modal-window-header">
+      <div class="modal-window-title">
+        <span>✏️</span> Edit Bicycle Details
+      </div>
+      <button type="button" class="modal-window-close" onclick="closeModal('edit-bicycle-modal')">✕</button>
+    </div>
+    <form method="post" action="{{ url_for('edit_bicycle') }}">
+      <input type="hidden" id="edit-bike-id" name="bicycle_id" />
+      <div class="form-group">
+        <label class="form-label" for="edit-bike-station">Current Docking Station *</label>
+        <select id="edit-bike-station" name="station_id" class="form-input" required>
+          {% for st in stations %}
+            <option value="{{ st.station_id }}">{{ st.name }} (Capacity: {{ st.capacity }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-bike-model">Model Name *</label>
+        <input type="text" id="edit-bike-model" name="model" class="form-input" required />
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label" for="edit-bike-type">Bicycle Type *</label>
+          <select id="edit-bike-type" name="type" class="form-input">
+            <option value="standard">Standard Cruiser</option>
+            <option value="electric">Electric (e-Bike)</option>
+            <option value="mountain">Mountain Bike</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="edit-bike-status">Operational Status *</label>
+          <select id="edit-bike-status" name="status" class="form-input">
+            <option value="available">Available</option>
+            <option value="rented">Rented</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="reserved">Reserved</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-window-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('edit-bicycle-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="submit-edit-bike-btn">Save Changes ✓</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 6. Window: Delete Bicycle Confirmation -->
+<div class="modal-overlay" id="delete-bicycle-modal">
+  <div class="modal">
+    <div class="modal-icon">⚠️</div>
+    <h3>Delete Bicycle?</h3>
+    <p id="delete-bicycle-msg">Are you sure you want to remove this bicycle from inventory? This action cannot be undone.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('delete-bicycle-modal')">Cancel</button>
+      <form id="delete-bicycle-form" method="post" action="" style="margin:0;">
+        <button type="submit" class="btn btn-danger" id="confirm-delete-bike-btn">Delete Bicycle</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main Content ───────────────────────────────────────── -->
 <main>
   <div class="container section">
 
-    <!-- Page Header -->
+    <!-- Page Header & Action Controls -->
     <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
       <div>
-        <h1>Stations & Bicycle Inventory 🚉</h1>
-        <p>Monitor capacity limits, docking occupancy, and update bicycle maintenance states.</p>
+        <h1>Stations & Bicycle Fleet 🚉</h1>
+        <p>Manage physical docking stations, capacity thresholds, fleet expansion, and maintenance.</p>
       </div>
-      <a href="{{ url_for('admin_rentals') }}" class="btn btn-primary">
-        View Active Rentals →
-      </a>
+      <div class="flex gap-12" style="flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary" onclick="openModal('add-station-modal')" id="btn-add-station">
+          + Add Station
+        </button>
+        <button type="button" class="btn btn-dark" onclick="openModal('add-bicycle-modal')" id="btn-add-bicycle">
+          + Add Bicycle
+        </button>
+        <a href="{{ url_for('admin_rentals') }}" class="btn btn-outline" id="btn-view-rentals">
+          View Rentals →
+        </a>
+      </div>
     </div>
 
-    <!-- Stations Breakdown Cards -->
-    <h2 class="mb-16">Station Capacities & Availability</h2>
+    <!-- Stations Breakdown Section -->
+    <div class="flex-between mb-16">
+      <h2>Campus Docking Stations ({{ stations|length }})</h2>
+      <small style="color:var(--text-light);">Real-time docking occupancy and availability</small>
+    </div>
+
+    {% if stations %}
     <div class="grid-3 mb-24">
       {% for st in stations %}
-      <div class="card">
-        <div class="flex-between mb-8">
-          <h3 style="font-size: 1.05rem;">{{ st.name }}</h3>
-          <span class="badge badge-available">{{ st.available }} Avail</span>
-        </div>
-        <p style="font-size:0.85rem; color:var(--text-light); margin-bottom:12px;">📍 {{ st.location }}</p>
+      <div class="card flex" style="flex-direction:column; justify-content:space-between;">
+        <div>
+          <div class="flex-between mb-8">
+            <h3 style="font-size: 1.1rem;">{{ st.name }}</h3>
+            <span class="badge badge-available">{{ st.available }} Avail</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-light); margin-bottom:14px;">📍 {{ st.location }}</p>
 
-        <!-- Progress bar -->
-        <div class="progress-bar">
+          <!-- Occupancy Progress bar -->
           {% set occ = (st.total / st.capacity * 100) | int if st.capacity > 0 else 0 %}
-          <div class="progress-fill" {{ ('style="width: ' ~ occ ~ '%;"') | safe }}></div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width: {{ occ }}%; background: {% if occ >= 90 %}var(--danger){% elif occ >= 70 %}var(--warning){% else %}var(--primary){% endif %};"></div>
+          </div>
+
+          <div class="flex-between mt-8" style="font-size: 0.82rem; color: var(--text-light);">
+            <span>Occupancy: <strong>{{ st.total }} / {{ st.capacity }}</strong> bikes</span>
+            <span><strong>{{ occ }}%</strong> full</span>
+          </div>
+
+          <div class="flex gap-6 mt-16" style="flex-wrap:wrap;">
+            <span class="badge badge-available" title="Ready to rent">{{ st.available }} Free</span>
+            <span class="badge badge-rented" title="Out on rental">{{ st.rented }} In Use</span>
+            {% if st.maintenance > 0 %}
+              <span class="badge badge-maintenance" title="In servicing">{{ st.maintenance }} Service</span>
+            {% endif %}
+            {% if st.reserved > 0 %}
+              <span class="badge badge-reserved" title="Reserved online">{{ st.reserved }} Reserved</span>
+            {% endif %}
+          </div>
         </div>
 
-        <div class="flex-between mt-8" style="font-size: 0.8rem; color: var(--text-light);">
-          <span>Occupancy: {{ st.total }} / {{ st.capacity }}</span>
-          <span>{{ occ }}%</span>
-        </div>
-
-        <div class="flex gap-8 mt-16" style="flex-wrap:wrap;">
-          <span class="badge badge-available">{{ st.available }} Available</span>
-          <span class="badge badge-rented">{{ st.rented }} In Use</span>
-          {% if st.maintenance > 0 %}
-            <span class="badge badge-maintenance">{{ st.maintenance }} Service</span>
-          {% endif %}
-          {% if st.reserved > 0 %}
-            <span class="badge badge-reserved">{{ st.reserved }} Reserved</span>
-          {% endif %}
+        <!-- Station Management Controls -->
+        <div class="station-actions flex-between">
+          <button type="button" class="btn btn-ghost btn-sm"
+                  onclick="openEditStationModal({{ st.station_id }}, '{{ st.name | escape }}', '{{ st.location | escape }}', {{ st.capacity }})">
+            ✏️ Edit
+          </button>
+          <button type="button" class="btn btn-outline-danger btn-sm"
+                  onclick="openDeleteStationModal({{ st.station_id }}, '{{ st.name | escape }}', {{ st.total }})">
+            🗑️ Delete
+          </button>
         </div>
       </div>
       {% endfor %}
     </div>
+    {% else %}
+    <div class="card empty-state mb-24" style="padding:40px;">
+      <div class="empty-icon">🚉</div>
+      <h3>No docking stations added yet</h3>
+      <p class="mt-8">Set up your physical stations across campus to begin deploying bicycles.</p>
+      <button type="button" class="btn btn-primary mt-16" onclick="openModal('add-station-modal')">
+        + Create First Station
+      </button>
+    </div>
+    {% endif %}
 
-    <!-- Bicycle Fleet List -->
-    <div class="card mt-24" style="padding:24px 28px;">
-      <div class="flex-between mb-16">
+    <!-- Bicycle Fleet Inventory Section -->
+    <div class="card mt-24" style="padding:28px;">
+      <div class="flex-between mb-16" style="flex-wrap:wrap; gap:16px;">
         <div>
-          <h2>Bicycle Fleet Status ({{ bikes|length }})</h2>
-          <p style="font-size: 0.88rem;">Staff can quickly modify status flags for bike servicing or fleet rebalancing.</p>
+          <h2>Bicycle Fleet Inventory ({{ bikes|length }})</h2>
+          <p style="font-size: 0.88rem;">Manage bicycle assets, reassign station homes, and change operational status.</p>
+        </div>
+        <div class="flex gap-12" style="align-items:center;">
+          <input type="text" id="bike-search" class="form-input search-bar" placeholder="🔍 Search by ID, model, station..." onkeyup="filterBikeTable()" />
+          <button type="button" class="btn btn-dark btn-sm" onclick="openModal('add-bicycle-modal')">
+            + Add Bike
+          </button>
         </div>
       </div>
 
+      {% if bikes %}
       <div class="table-wrap" style="border:none;">
-        <table>
+        <table id="bikes-table">
           <thead>
             <tr>
               <th>Bike ID</th>
@@ -122,8 +391,9 @@
               <th>Type</th>
               <th>Current Station</th>
               <th>Added Date</th>
-              <th>Current Status</th>
-              <th>Quick Action</th>
+              <th>Status</th>
+              <th>Quick Status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -139,7 +409,7 @@
               </td>
               <td>
                 <form method="post" action="{{ url_for('update_bike_status') }}" style="display:flex; gap:6px; align-items:center; margin:0;">
-                  <input type="hidden" name="bicycle_id" value="{{ b.bicycle_id }}">
+                  <input type="hidden" name="bicycle_id" value="{{ b.bicycle_id }}" />
                   <select name="status" class="status-select">
                     <option value="available" {% if b.status == 'available' %}selected{% endif %}>Available</option>
                     <option value="rented" {% if b.status == 'rented' %}selected{% endif %}>Rented</option>
@@ -151,24 +421,128 @@
                   </button>
                 </form>
               </td>
+              <td>
+                <div class="table-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding:5px 9px;" title="Edit bicycle"
+                          onclick="openEditBikeModal({{ b.bicycle_id }}, '{{ b.model | escape }}', '{{ b.type }}', {{ b.station_id }}, '{{ b.status }}')">
+                    ✏️
+                  </button>
+                  <button type="button" class="btn btn-outline-danger btn-sm" style="padding:5px 9px;" title="Delete bicycle"
+                          onclick="openDeleteBikeModal({{ b.bicycle_id }}, '{{ b.model | escape }}', '{{ b.status }}')">
+                    🗑️
+                  </button>
+                </div>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      {% else %}
+      <div class="empty-state" style="padding:40px;">
+        <div class="empty-icon">🚴</div>
+        <h3>No bicycles in fleet</h3>
+        <p class="mt-8">Click '+ Add Bicycle' to deploy bicycles to your campus stations.</p>
+        <button type="button" class="btn btn-primary btn-sm mt-16" onclick="openModal('add-bicycle-modal')">
+          + Add Bicycle Now
+        </button>
+      </div>
+      {% endif %}
     </div>
 
   </div>
 </main>
 
 <script>
+  function openModal(id) {
+    document.getElementById(id).classList.add('active');
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+  }
+
+  // Edit Station window handler
+  function openEditStationModal(id, name, location, capacity) {
+    document.getElementById('edit-st-id').value = id;
+    document.getElementById('edit-st-name').value = name;
+    document.getElementById('edit-st-loc').value = location;
+    document.getElementById('edit-st-cap').value = capacity;
+    openModal('edit-station-modal');
+  }
+
+  // Delete Station window handler
+  function openDeleteStationModal(id, name, totalBikes) {
+    const form = document.getElementById('delete-station-form');
+    form.action = '/admin/stations/delete/' + id;
+    const msg = document.getElementById('delete-station-msg');
+    if (totalBikes > 0) {
+      msg.innerHTML = `⚠️ Station <strong>${name}</strong> currently has <strong>${totalBikes} bicycle(s)</strong> docked. You must reassign or remove all bicycles before deleting this station.`;
+      document.getElementById('confirm-delete-station-btn').disabled = true;
+    } else {
+      msg.innerHTML = `Are you sure you want to permanently delete station <strong>${name}</strong>?`;
+      document.getElementById('confirm-delete-station-btn').disabled = false;
+    }
+    openModal('delete-station-modal');
+  }
+
+  // Edit Bicycle window handler
+  function openEditBikeModal(id, model, type, stationId, status) {
+    document.getElementById('edit-bike-id').value = id;
+    document.getElementById('edit-bike-model').value = model;
+    document.getElementById('edit-bike-type').value = type;
+    document.getElementById('edit-bike-station').value = stationId;
+    document.getElementById('edit-bike-status').value = status;
+    openModal('edit-bicycle-modal');
+  }
+
+  // Delete Bicycle window handler
+  function openDeleteBikeModal(id, model, status) {
+    const form = document.getElementById('delete-bicycle-form');
+    form.action = '/admin/bicycles/delete/' + id;
+    const msg = document.getElementById('delete-bicycle-msg');
+    if (status === 'rented' || status === 'reserved') {
+      msg.innerHTML = `⚠️ Bike <strong>#${id} (${model})</strong> is currently <strong>${status}</strong>. Please complete or cancel the rental before deleting.`;
+      document.getElementById('confirm-delete-bike-btn').disabled = true;
+    } else {
+      msg.innerHTML = `Are you sure you want to remove Bike <strong>#${id} (${model})</strong> from the fleet?`;
+      document.getElementById('confirm-delete-bike-btn').disabled = false;
+    }
+    openModal('delete-bicycle-modal');
+  }
+
+  // Close modals on clicking overlay backdrop
+  document.querySelectorAll('.modal-overlay').forEach(modal => {
+    modal.addEventListener('click', function(e) {
+      if (e.target === this) closeModal(this.id);
+    });
+  });
+
+  // Close on Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+    }
+  });
+
+  // Client-side search filter for bikes table
+  function filterBikeTable() {
+    const input = document.getElementById('bike-search').value.toLowerCase();
+    const rows = document.querySelectorAll('#bikes-table tbody tr');
+    rows.forEach(row => {
+      const text = row.innerText.toLowerCase();
+      row.style.display = text.includes(input) ? '' : 'none';
+    });
+  }
+
+  // Auto-dismiss flashes
   setTimeout(() => {
     document.querySelectorAll('.flash').forEach(el => {
       el.style.transition = 'opacity .4s';
       el.style.opacity = '0';
       setTimeout(() => el.remove(), 400);
     });
-  }, 4000);
+  }, 4500);
 </script>
 </body>
 </html>

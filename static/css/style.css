@@ -269,6 +269,10 @@ small { font-size: .8rem; color: var(--text-light); }
 .badge-admin      { background: #e8eaf6; color: #283593; }
 .badge-staff      { background: #f3e5f5; color: #6a1b9a; }
 .badge-manager    { background: #e0f7fa; color: #006064; }
+.badge-info       { background: #e0f2fe; color: #0369a1; }
+.badge-warning    { background: #fef3c7; color: #b45309; }
+.badge-alert      { background: #fee2e2; color: #b91c1c; }
+.badge-success    { background: #e8f5e9; color: #2e7d32; }
 
 /* ── Table ────────────────────────────────────────────────── */
 .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
@@ -699,6 +703,108 @@ tr.overdue-row td { background: #fff8f8 !important; }
 
 .modal-actions { display: flex; gap: 12px; justify-content: center; }
 .modal-actions .btn { min-width: 120px; justify-content: center; }
+
+/* ── Modal Window for Forms ─────────────────────────────── */
+.modal-window {
+  max-width: 540px;
+  width: 100%;
+  text-align: left;
+  padding: 32px;
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border);
+  animation: scaleIn .3s cubic-bezier(.2,.8,.4,1);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-window-lg {
+  max-width: 680px;
+}
+.modal-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-window-title {
+  font-size: 1.28rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.modal-window-close {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all var(--transition);
+}
+.modal-window-close:hover {
+  color: var(--text-dark);
+  background: var(--border);
+}
+.modal-window-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Admin Tabs ───────────────────────────────────────────── */
+.admin-tab-nav {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 24px;
+  overflow-x: auto;
+}
+.admin-tab-btn {
+  background: none;
+  border: none;
+  padding: 12px 20px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-light);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.admin-tab-btn:hover {
+  color: var(--text-dark);
+}
+.admin-tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+.admin-tab-pane {
+  display: none;
+}
+.admin-tab-pane.active {
+  display: block;
+}
+
+/* ── Staff & Action Badges ────────────────────────────────── */
+.badge-admin { background: #fee2e2; color: #b91c1c; }
+.badge-manager { background: #fef3c7; color: #b45309; }
+.badge-staff { background: #e0f2fe; color: #0369a1; }
+.badge-notification { background: #fdf4ee; color: var(--primary); border: 1px solid var(--primary-s); }
 
 /* ── Responsive ───────────────────────────────────────────── */
 @media (max-width: 900px) {

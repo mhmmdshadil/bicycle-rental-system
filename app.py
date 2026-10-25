@@ -120,13 +120,39 @@ def validate_email(email):
 def validate_phone(phone):
     return re.match(r'^\d{10}$', phone) is not None if phone else True
 
+def create_notification(student_id, title, message, notification_type="info", rental_id=None):
+    """Safely insert a notification for a student."""
+    try:
+        execute(
+            """INSERT INTO notifications (student_id, rental_id, title, message, notification_type, status)
+               VALUES (%s, %s, %s, %s, %s, 'unread')""",
+            (student_id, rental_id, title, message, notification_type)
+        )
+    except Exception as e:
+        print(f"[NOTIFICATION ERROR] {e}")
+
 def auto_sync_status():
     """
     Automatically synchronize fleet status:
     1. Expire pending reservations past their 2-hour window and restore the bicycles to 'available'.
-    2. Mark active rentals past their due date as 'overdue'.
+    2. Mark active rentals past their due date as 'overdue' and send alert notifications.
     """
     try:
+        # 1. Expire stale reservations
+        expired_res = query("""
+            SELECT res.reservation_id, res.student_id, b.model
+            FROM reservations res
+            JOIN bicycles b ON res.bicycle_id = b.bicycle_id
+            WHERE res.status IN ('pending', 'confirmed') AND res.expires_at < NOW()
+        """)
+        for r in expired_res or []:
+            create_notification(
+                r["student_id"],
+                "Reservation Expired",
+                f"Your 2-hour hold on '{r['model']}' has expired and the bicycle has been released.",
+                "warning"
+            )
+
         execute("""
             UPDATE bicycles b
             JOIN reservations r ON b.bicycle_id = r.bicycle_id
@@ -138,6 +164,28 @@ def auto_sync_status():
             SET status = 'cancelled'
             WHERE status IN ('pending', 'confirmed') AND expires_at < NOW()
         """)
+
+        # 2. Overdue rentals alert
+        overdue_rentals = query("""
+            SELECT r.rental_id, r.student_id, b.model
+            FROM rentals r
+            JOIN bicycles b ON r.bicycle_id = b.bicycle_id
+            WHERE r.status = 'active' AND r.due_at < NOW()
+        """)
+        for ov in overdue_rentals or []:
+            existing_alert = query(
+                "SELECT notification_id FROM notifications WHERE rental_id = %s AND notification_type = 'alert'",
+                (ov["rental_id"],), fetch="one"
+            )
+            if not existing_alert:
+                create_notification(
+                    ov["student_id"],
+                    "Rental Overdue ⚠️",
+                    f"Your rental for '{ov['model']}' is overdue. Please return it to any station as soon as possible.",
+                    "alert",
+                    rental_id=ov["rental_id"]
+                )
+
         execute("""
             UPDATE rentals
             SET status = 'overdue'
@@ -363,6 +411,11 @@ def student_dashboard():
         (student_id,), fetch="one"
     )
 
+    unread_notifs = query(
+        "SELECT COUNT(*) AS cnt FROM notifications WHERE student_id = %s AND status = 'unread'",
+        (student_id,), fetch="one"
+    )
+
     return render_template(
         "student_dashboard.html",
         student=student,
@@ -370,6 +423,7 @@ def student_dashboard():
         active_rentals=active_rentals["cnt"] if active_rentals else 0,
         overdue_rentals=overdue_rentals["cnt"] if overdue_rentals else 0,
         pending_reservations=pending_reservations["cnt"] if pending_reservations else 0,
+        unread_notifications=unread_notifs["cnt"] if unread_notifs else 0,
     )
 
 
@@ -470,6 +524,12 @@ def reserve_bicycle(bicycle_id):
         flash("Reservation failed. Please try again.", "error")
         return redirect(url_for("student_bikes"))
 
+    create_notification(
+        student_id,
+        "Reservation Confirmed 🎉",
+        f"You have reserved {bike['model']} (Bike #{bicycle_id}). Please pick it up at the docking station within 2 hours.",
+        "info"
+    )
     flash("Reservation placed! 🎉 Pick up within 2 hours at the station.", "success")
     return redirect(url_for("student_notifications"))
 
@@ -502,6 +562,12 @@ def unreserve_bicycle(reservation_id):
             "UPDATE bicycles SET status = 'available' WHERE bicycle_id = %s AND status = 'reserved'",
             (reservation["bicycle_id"],)
         )
+        create_notification(
+            student_id,
+            "Reservation Cancelled",
+            f"Your reservation #{reservation_id} has been cancelled. Bicycle #{reservation['bicycle_id']} is now available for others.",
+            "warning"
+        )
         flash("Reservation cancelled. Bicycle is now available again.", "success")
     else:
         flash("Failed to cancel reservation. Please try again.", "error")
@@ -509,70 +575,27 @@ def unreserve_bicycle(reservation_id):
     return redirect(url_for("student_notifications"))
 
 @app.route("/student/reservation/cancel/<int:reservation_id>", methods=["POST"])
+@student_required
 def cancel_reservation(reservation_id):
-    """
-    Allow a student to cancel their own active bicycle reservation.
-    Verifies reservation ownership, updates status to 'cancelled',
-    and releases the bicycle back to 'available'.
-    """
-    student_id = request.form.get("student_id", type=int)
-    if not student_id:
-        student_id = request.args.get("student_id", 1, type=int)
-
-    # Fetch reservation details
-    res = query(
-        "SELECT * FROM reservations WHERE reservation_id = %s",
-        (reservation_id,),
-        fetch="one",
-    )
-
-    if not res:
-        flash("Reservation not found.", "error")
-        return redirect(url_for("student_notifications", student_id=student_id))
-
-    # Security check: Ensure students can ONLY cancel their own reservation
-    if res["student_id"] != student_id:
-        flash("Unauthorized: You can only cancel your own cycle reservation.", "error")
-        return redirect(url_for("student_notifications", student_id=student_id))
-
-    # Check if the reservation is in a cancellable state
-    if res["status"] not in ("pending", "confirmed"):
-        flash(
-            f"Reservation #{reservation_id} is already marked as {res['status']} and cannot be cancelled.",
-            "warning",
-        )
-        return redirect(url_for("student_notifications", student_id=student_id))
-
-    # 1. Update reservation status to cancelled
-    cancelled = execute(
-        "UPDATE reservations SET status = 'cancelled' WHERE reservation_id = %s AND student_id = %s",
-        (reservation_id, student_id),
-    )
-
-    if cancelled:
-        # 2. Release bicycle back to available if it is currently marked as reserved
-        execute(
-            "UPDATE bicycles SET status = 'available' WHERE bicycle_id = %s AND status = 'reserved'",
-            (res["bicycle_id"],),
-        )
-        flash(
-            f"Reservation #{reservation_id} has been cancelled successfully. The bicycle is now available for others.",
-            "success",
-        )
-    else:
-        flash("Failed to cancel reservation. Please try again.", "error")
-
-    return redirect(url_for("student_notifications", student_id=student_id))
+    """Alias for student reservation cancellation."""
+    return unreserve_bicycle(reservation_id)
 
 
 @app.route("/student/notifications")
 @student_required
 def student_notifications():
-    """My Rentals & Notifications."""
+    """My Rentals, Reservations & System Notifications."""
     auto_sync_status()
     student_id = session["student_id"]
 
     student = query("SELECT * FROM students WHERE student_id = %s", (student_id,), fetch="one")
+
+    notifications = query(
+        """SELECT * FROM notifications
+           WHERE student_id = %s
+           ORDER BY created_at DESC""",
+        (student_id,),
+    ) or []
 
     rentals = query(
         """SELECT r.rental_id, r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
@@ -598,14 +621,41 @@ def student_notifications():
         (student_id,),
     )
 
+    unread_count = sum(1 for n in notifications if n.get("status") == "unread")
     now = datetime.now()
+
     return render_template(
         "student_notifications.html",
         student=student,
+        notifications=notifications,
+        unread_count=unread_count,
         rentals=rentals,
         reservations=reservations,
         now=now,
     )
+
+
+@app.route("/student/notifications/read/<int:notification_id>", methods=["POST"])
+@student_required
+def mark_notification_read(notification_id):
+    """Mark a single notification as read."""
+    student_id = session["student_id"]
+    execute(
+        "UPDATE notifications SET status = 'read' WHERE notification_id = %s AND student_id = %s",
+        (notification_id, student_id)
+    )
+    flash("Notification marked as read.", "success")
+    return redirect(url_for("student_notifications"))
+
+
+@app.route("/student/notifications/read-all", methods=["POST"])
+@student_required
+def mark_all_notifications_read():
+    """Mark all notifications as read for current student."""
+    student_id = session["student_id"]
+    execute("UPDATE notifications SET status = 'read' WHERE student_id = %s", (student_id,))
+    flash("All notifications marked as read.", "success")
+    return redirect(url_for("student_notifications"))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -615,7 +665,7 @@ def student_notifications():
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
-    """Admin Dashboard – KPI cards and recent activity."""
+    """Admin Dashboard – KPI cards, staff team, student directory, notifications, and recent activity."""
     auto_sync_status()
     total_stations   = query("SELECT COUNT(*) AS cnt FROM stations", fetch="one")
     total_bikes      = query("SELECT COUNT(*) AS cnt FROM bicycles", fetch="one")
@@ -623,6 +673,8 @@ def admin_dashboard():
     active_rentals   = query("SELECT COUNT(*) AS cnt FROM rentals WHERE status='active'", fetch="one")
     overdue_rentals  = query("SELECT COUNT(*) AS cnt FROM rentals WHERE status='overdue'", fetch="one")
     total_students   = query("SELECT COUNT(*) AS cnt FROM students", fetch="one")
+    total_staff      = query("SELECT COUNT(*) AS cnt FROM staff", fetch="one")
+    total_notifs     = query("SELECT COUNT(*) AS cnt FROM notifications", fetch="one")
     pending_res      = query(
         "SELECT COUNT(*) AS cnt FROM reservations WHERE status IN ('pending', 'confirmed')", fetch="one"
     )
@@ -649,6 +701,28 @@ def admin_dashboard():
     recent_activity = (recent_rentals_list or []) + (recent_res_list or [])
     recent_activity.sort(key=lambda x: x["issued_at"] or datetime.min, reverse=True)
 
+    staff_members = query(
+        "SELECT staff_id, name, email, phone, role, created_at FROM staff ORDER BY FIELD(role, 'admin', 'manager', 'staff'), name"
+    ) or []
+
+    students_list = query(
+        """SELECT s.student_id, s.name, s.email, s.phone, s.roll_number, s.created_at,
+                  (SELECT COUNT(*) FROM rentals r WHERE r.student_id = s.student_id AND r.status IN ('active', 'overdue')) AS active_rentals_cnt,
+                  (SELECT COUNT(*) FROM reservations res WHERE res.student_id = s.student_id AND res.status IN ('pending', 'confirmed')) AS active_res_cnt
+           FROM students s
+           ORDER BY s.created_at DESC"""
+    ) or []
+
+    notifications_list = query(
+        """SELECT n.notification_id, n.student_id, n.title, n.message, n.notification_type, n.status, n.created_at,
+                  s.name AS student_name, s.roll_number
+           FROM notifications n
+           JOIN students s ON n.student_id = s.student_id
+           ORDER BY n.created_at DESC LIMIT 30"""
+    ) or []
+
+    stations_list = query("SELECT station_id, name, capacity FROM stations ORDER BY name") or []
+
     return render_template(
         "admin_dashboard.html",
         total_stations       = total_stations["cnt"]  if total_stations  else 0,
@@ -657,8 +731,14 @@ def admin_dashboard():
         active_rentals       = active_rentals["cnt"]   if active_rentals  else 0,
         overdue_rentals      = overdue_rentals["cnt"]  if overdue_rentals else 0,
         total_students       = total_students["cnt"]   if total_students  else 0,
+        total_staff          = total_staff["cnt"]      if total_staff     else 0,
+        total_notifications  = total_notifs["cnt"]     if total_notifs    else 0,
         pending_reservations = pending_res["cnt"]      if pending_res     else 0,
-        recent_rentals       = recent_activity[:6],
+        recent_rentals       = recent_activity[:8],
+        staff_members        = staff_members,
+        students_list        = students_list,
+        notifications_list   = notifications_list,
+        stations_list        = stations_list,
     )
 
 
@@ -678,15 +758,226 @@ def admin_stations():
            LEFT JOIN bicycles b ON s.station_id = b.station_id
            GROUP BY s.station_id
            ORDER BY s.name"""
-    )
+    ) or []
     bikes = query(
-        """SELECT b.bicycle_id, b.model, b.type, b.status, b.added_at,
+        """SELECT b.bicycle_id, b.station_id, b.model, b.type, b.status, b.added_at,
                   s.name AS station_name
            FROM bicycles b
            JOIN stations s ON b.station_id = s.station_id
-           ORDER BY s.name, b.status"""
-    )
+           ORDER BY s.name, b.status, b.bicycle_id"""
+    ) or []
     return render_template("admin_stations.html", stations=stations, bikes=bikes)
+
+
+@app.route("/admin/stations/add", methods=["POST"])
+@admin_required
+def add_station():
+    """Admin: Add a new docking station."""
+    name = request.form.get("name", "").strip()
+    location = request.form.get("location", "").strip()
+    capacity = request.form.get("capacity", type=int)
+
+    if not name or not location or not capacity or capacity < 1:
+        flash("Please provide a valid station name, location, and capacity (minimum 1).", "error")
+        return redirect(url_for("admin_stations"))
+
+    ok = execute(
+        "INSERT INTO stations (name, location, capacity) VALUES (%s, %s, %s)",
+        (name, location, capacity)
+    )
+    if ok:
+        flash(f"Docking Station '{name}' (Capacity: {capacity}) created successfully! 🚉", "success")
+    else:
+        flash("Failed to create station. Please try again.", "error")
+    return redirect(url_for("admin_stations"))
+
+
+@app.route("/admin/stations/edit", methods=["POST"])
+@admin_required
+def edit_station():
+    """Admin: Edit an existing station's details and capacity."""
+    station_id = request.form.get("station_id", type=int)
+    name = request.form.get("name", "").strip()
+    location = request.form.get("location", "").strip()
+    capacity = request.form.get("capacity", type=int)
+
+    if not station_id or not name or not location or not capacity or capacity < 1:
+        flash("All fields are required and capacity must be at least 1.", "error")
+        return redirect(url_for("admin_stations"))
+
+    # Check current number of bikes at this station
+    current_bikes = query(
+        "SELECT COUNT(*) AS cnt FROM bicycles WHERE station_id = %s",
+        (station_id,), fetch="one"
+    )
+    bike_cnt = current_bikes["cnt"] if current_bikes else 0
+    if capacity < bike_cnt:
+        flash(
+            f"Cannot lower capacity to {capacity}: Station currently holds {bike_cnt} bicycles. Please reassign bikes before reducing capacity.",
+            "error"
+        )
+        return redirect(url_for("admin_stations"))
+
+    ok = execute(
+        "UPDATE stations SET name = %s, location = %s, capacity = %s WHERE station_id = %s",
+        (name, location, capacity, station_id)
+    )
+    if ok:
+        flash(f"Station '{name}' updated successfully! ✅", "success")
+    else:
+        flash("Failed to update station.", "error")
+    return redirect(url_for("admin_stations"))
+
+
+@app.route("/admin/stations/delete/<int:station_id>", methods=["POST"])
+@admin_required
+def delete_station(station_id):
+    """Admin: Delete a station if no bicycles are docked there."""
+    bikes_at_station = query(
+        "SELECT COUNT(*) AS cnt FROM bicycles WHERE station_id = %s",
+        (station_id,), fetch="one"
+    )
+    if bikes_at_station and bikes_at_station["cnt"] > 0:
+        flash(
+            f"Cannot delete station: There are currently {bikes_at_station['cnt']} bicycle(s) assigned to it. Reassign or delete these bicycles first.",
+            "error"
+        )
+        return redirect(url_for("admin_stations"))
+
+    st = query("SELECT name FROM stations WHERE station_id = %s", (station_id,), fetch="one")
+    st_name = st["name"] if st else f"#{station_id}"
+    ok = execute("DELETE FROM stations WHERE station_id = %s", (station_id,))
+    if ok:
+        flash(f"Station '{st_name}' removed successfully.", "success")
+    else:
+        flash("Failed to delete station.", "error")
+    return redirect(url_for("admin_stations"))
+
+
+@app.route("/admin/bicycles/add", methods=["POST"])
+@admin_required
+def add_bicycle():
+    """Admin: Add a new bicycle to a docking station."""
+    station_id = request.form.get("station_id", type=int)
+    model = request.form.get("model", "").strip() or "Standard Cruiser"
+    bike_type = request.form.get("type", "standard").strip().lower()
+    status = request.form.get("status", "available").strip().lower()
+
+    if not station_id:
+        flash("Please select a valid docking station.", "error")
+        return redirect(url_for("admin_stations"))
+
+    if bike_type not in ("standard", "electric", "mountain"):
+        bike_type = "standard"
+    if status not in ("available", "maintenance"):
+        status = "available"
+
+    # Validate station exists and check capacity limit
+    station = query("SELECT name, capacity FROM stations WHERE station_id = %s", (station_id,), fetch="one")
+    if not station:
+        flash("Selected station does not exist.", "error")
+        return redirect(url_for("admin_stations"))
+
+    current_count = query("SELECT COUNT(*) AS cnt FROM bicycles WHERE station_id = %s", (station_id,), fetch="one")
+    c_cnt = current_count["cnt"] if current_count else 0
+
+    if c_cnt >= station["capacity"]:
+        flash(
+            f"Cannot add bicycle: Station '{station['name']}' has reached its full capacity ({c_cnt}/{station['capacity']}). Please select another station or expand capacity.",
+            "error"
+        )
+        return redirect(url_for("admin_stations"))
+
+    new_id = execute(
+        "INSERT INTO bicycles (station_id, model, type, status) VALUES (%s, %s, %s, %s)",
+        (station_id, model, bike_type, status)
+    )
+    if new_id:
+        flash(f"Bicycle #{new_id} ({model} - {bike_type.capitalize()}) added to '{station['name']}'! 🚲", "success")
+    else:
+        flash("Failed to add bicycle. Please try again.", "error")
+    return redirect(url_for("admin_stations"))
+
+
+@app.route("/admin/bicycles/edit", methods=["POST"])
+@admin_required
+def edit_bicycle():
+    """Admin: Edit bicycle model, type, station, and operational status."""
+    bicycle_id = request.form.get("bicycle_id", type=int)
+    station_id = request.form.get("station_id", type=int)
+    model = request.form.get("model", "").strip()
+    bike_type = request.form.get("type", "standard").strip().lower()
+    status = request.form.get("status", "available").strip().lower()
+
+    if not bicycle_id or not station_id or not model:
+        flash("Missing required information for bicycle update.", "error")
+        return redirect(url_for("admin_stations"))
+
+    if bike_type not in ("standard", "electric", "mountain"):
+        bike_type = "standard"
+
+    # Safety: don't manually set to 'available' or change station if actively rented
+    active_rental = query(
+        "SELECT rental_id FROM rentals WHERE bicycle_id = %s AND status IN ('active', 'overdue')",
+        (bicycle_id,), fetch="one"
+    )
+    if active_rental:
+        flash(
+            f"Cannot modify Bike #{bicycle_id}: It is currently checked out under Rental #{active_rental['rental_id']}. Please process the return first.",
+            "error"
+        )
+        return redirect(url_for("admin_stations"))
+
+    # If status set to maintenance, cancel any pending reservation
+    if status == "maintenance":
+        execute(
+            "UPDATE reservations SET status='cancelled' WHERE bicycle_id=%s AND status IN ('pending','confirmed')",
+            (bicycle_id,)
+        )
+
+    ok = execute(
+        "UPDATE bicycles SET station_id = %s, model = %s, type = %s, status = %s WHERE bicycle_id = %s",
+        (station_id, model, bike_type, status, bicycle_id)
+    )
+    if ok:
+        flash(f"Bicycle #{bicycle_id} ({model}) updated successfully! ✅", "success")
+    else:
+        flash("Failed to update bicycle.", "error")
+    return redirect(url_for("admin_stations"))
+
+
+@app.route("/admin/bicycles/delete/<int:bicycle_id>", methods=["POST"])
+@admin_required
+def delete_bicycle(bicycle_id):
+    """Admin: Safely delete a bicycle from the fleet."""
+    active_rental = query(
+        "SELECT rental_id FROM rentals WHERE bicycle_id = %s AND status IN ('active', 'overdue')",
+        (bicycle_id,), fetch="one"
+    )
+    if active_rental:
+        flash(
+            f"Cannot delete Bike #{bicycle_id}: It is actively rented out in Rental #{active_rental['rental_id']}.",
+            "error"
+        )
+        return redirect(url_for("admin_stations"))
+
+    active_res = query(
+        "SELECT reservation_id FROM reservations WHERE bicycle_id = %s AND status IN ('pending', 'confirmed')",
+        (bicycle_id,), fetch="one"
+    )
+    if active_res:
+        flash(
+            f"Cannot delete Bike #{bicycle_id}: It is reserved under Reservation #{active_res['reservation_id']}. Please cancel the reservation first.",
+            "error"
+        )
+        return redirect(url_for("admin_stations"))
+
+    ok = execute("DELETE FROM bicycles WHERE bicycle_id = %s", (bicycle_id,))
+    if ok:
+        flash(f"Bicycle #{bicycle_id} removed from inventory.", "success")
+    else:
+        flash("Failed to delete bicycle.", "error")
+    return redirect(url_for("admin_stations"))
 
 
 @app.route("/admin/stations/update-status", methods=["POST"])
@@ -701,18 +992,19 @@ def update_bike_status():
         flash("Invalid request.", "error")
         return redirect(url_for("admin_stations"))
 
-    # Safety: don't manually set a bike to 'available' if it's currently actively rented
     if new_status in ("available", "reserved"):
         active_rental = query(
             "SELECT rental_id FROM rentals WHERE bicycle_id = %s AND status IN ('active', 'overdue')",
             (bicycle_id,), fetch="one"
         )
         if active_rental:
-            flash(f"Cannot set Bike #{bicycle_id} to '{new_status}': it is currently checked out under Rental #{active_rental['rental_id']}. Please process the return first.", "error")
+            flash(
+                f"Cannot set Bike #{bicycle_id} to '{new_status}': it is currently checked out under Rental #{active_rental['rental_id']}. Please process the return first.",
+                "error"
+            )
             return redirect(url_for("admin_stations"))
 
     if new_status in ("available", "maintenance"):
-        # Close any active reservation on this bike
         execute(
             "UPDATE reservations SET status='cancelled' WHERE bicycle_id=%s AND status IN ('pending','confirmed')",
             (bicycle_id,)
@@ -721,6 +1013,134 @@ def update_bike_status():
     execute("UPDATE bicycles SET status = %s WHERE bicycle_id = %s", (new_status, bicycle_id))
     flash(f"Bicycle #{bicycle_id} status updated to '{new_status}'.", "success")
     return redirect(url_for("admin_stations"))
+
+
+@app.route("/admin/staff/add", methods=["POST"])
+@admin_required
+def add_staff():
+    """Admin: Add a new staff member or administrator."""
+    name = request.form.get("name", "").strip()
+    email = request.form.get("email", "").strip().lower()
+    phone = request.form.get("phone", "").strip()
+    role = request.form.get("role", "staff").strip().lower()
+    password = request.form.get("password", "")
+
+    if not name or not email or not password:
+        flash("Name, email, and password are required.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if not validate_email(email):
+        flash("Please enter a valid email address.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if len(password) < 6:
+        flash("Password must be at least 6 characters.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if role not in ("admin", "staff", "manager"):
+        role = "staff"
+
+    existing = query("SELECT staff_id FROM staff WHERE email = %s", (email,), fetch="one")
+    if existing:
+        flash(f"A staff account with email '{email}' already exists.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    pw_hash = generate_password_hash(password)
+    ok = execute(
+        "INSERT INTO staff (name, email, phone, role, password_hash) VALUES (%s, %s, %s, %s, %s)",
+        (name, email, phone or None, role, pw_hash)
+    )
+    if ok:
+        flash(f"Staff member '{name}' ({role.capitalize()}) added successfully! 👤", "success")
+    else:
+        flash("Failed to add staff member.", "error")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/staff/delete/<int:staff_id>", methods=["POST"])
+@admin_required
+def delete_staff(staff_id):
+    """Admin: Remove a staff account with safety checks."""
+    if staff_id == session.get("staff_id"):
+        flash("Security Alert: You cannot delete your own active administrator account.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    st = query("SELECT role, name FROM staff WHERE staff_id = %s", (staff_id,), fetch="one")
+    if not st:
+        flash("Staff member not found.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if st["role"] == "admin":
+        admin_count = query("SELECT COUNT(*) AS cnt FROM staff WHERE role = 'admin'", fetch="one")
+        if admin_count and admin_count["cnt"] <= 1:
+            flash("Cannot delete the only remaining Administrator account.", "error")
+            return redirect(url_for("admin_dashboard"))
+
+    ok = execute("DELETE FROM staff WHERE staff_id = %s", (staff_id,))
+    if ok:
+        flash(f"Staff account for '{st['name']}' has been removed.", "success")
+    else:
+        flash("Failed to delete staff member.", "error")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/students/delete/<int:student_id>", methods=["POST"])
+@admin_required
+def delete_student(student_id):
+    """Admin: Remove a student account if no active bicycle checkouts exist."""
+    active = query(
+        "SELECT rental_id FROM rentals WHERE student_id = %s AND status IN ('active', 'overdue')",
+        (student_id,), fetch="one"
+    )
+    if active:
+        flash("Cannot delete student: Student currently holds an active or overdue bicycle rental.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    st = query("SELECT name FROM students WHERE student_id = %s", (student_id,), fetch="one")
+    st_name = st["name"] if st else f"#{student_id}"
+
+    ok = execute("DELETE FROM students WHERE student_id = %s", (student_id,))
+    if ok:
+        flash(f"Student account for '{st_name}' removed from the system.", "success")
+    else:
+        flash("Failed to delete student account.", "error")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/notifications/send", methods=["POST"])
+@admin_required
+def send_notification():
+    """Admin: Send a notification message to an individual student or broadcast to all."""
+    recipient = request.form.get("recipient", "").strip()
+    title = request.form.get("title", "").strip() or "Campus Announcement"
+    message = request.form.get("message", "").strip()
+    notif_type = request.form.get("type", "info").strip()
+
+    if not message:
+        flash("Notification message cannot be blank.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if notif_type not in ("info", "alert", "warning", "success"):
+        notif_type = "info"
+
+    if recipient == "all":
+        all_students = query("SELECT student_id FROM students") or []
+        for s in all_students:
+            create_notification(s["student_id"], title, message, notif_type)
+        flash(f"Broadcast notification sent to all {len(all_students)} registered students! 📢", "success")
+    else:
+        try:
+            student_id = int(recipient)
+            student = query("SELECT name FROM students WHERE student_id = %s", (student_id,), fetch="one")
+            if not student:
+                flash("Recipient student not found.", "error")
+                return redirect(url_for("admin_dashboard"))
+            create_notification(student_id, title, message, notif_type)
+            flash(f"Notification sent to {student['name']}! ✉️", "success")
+        except ValueError:
+            flash("Invalid student recipient selected.", "error")
+
+    return redirect(url_for("admin_dashboard"))
 
 
 @app.route("/admin/rentals")
@@ -783,12 +1203,24 @@ def admin_rentals():
 @admin_required
 def return_rental(rental_id):
     """Admin: mark a rental as returned and free the bicycle."""
-    rental = query("SELECT * FROM rentals WHERE rental_id = %s", (rental_id,), fetch="one")
+    rental = query(
+        """SELECT r.*, b.model FROM rentals r
+           JOIN bicycles b ON r.bicycle_id = b.bicycle_id
+           WHERE r.rental_id = %s""",
+        (rental_id,), fetch="one"
+    )
     if rental and rental["status"] in ("active", "overdue"):
         execute(
             "UPDATE rentals SET status='returned', returned_at=NOW() WHERE rental_id=%s", (rental_id,)
         )
         execute("UPDATE bicycles SET status='available' WHERE bicycle_id=%s", (rental["bicycle_id"],))
+        create_notification(
+            rental["student_id"],
+            "Bicycle Return Confirmed ✅",
+            f"Your rental #{rental_id} for '{rental['model']}' has been returned and checked in. Thank you!",
+            "success",
+            rental_id=rental_id
+        )
         flash(f"Rental #{rental_id} marked as returned. Bicycle is now available. ✅", "success")
     else:
         flash("Rental not found or already returned.", "error")
@@ -800,25 +1232,39 @@ def return_rental(rental_id):
 def issue_reservation(reservation_id):
     """Admin: issue a reserved bicycle (converts reservation to active rental)."""
     auto_sync_status()
-    res = query("SELECT * FROM reservations WHERE reservation_id = %s", (reservation_id,), fetch="one")
+    res = query(
+        """SELECT res.*, b.model FROM reservations res
+           JOIN bicycles b ON res.bicycle_id = b.bicycle_id
+           WHERE res.reservation_id = %s""",
+        (reservation_id,), fetch="one"
+    )
     if res and res["status"] in ("pending", "confirmed"):
-        # Prevent double-rental by the same student
         existing_rental = query(
             "SELECT rental_id FROM rentals WHERE student_id = %s AND status IN ('active', 'overdue')",
             (res["student_id"],), fetch="one"
         )
         if existing_rental:
-            flash(f"Cannot issue: Student already has an active or overdue rental (#{existing_rental['rental_id']}). Please process its return first.", "error")
+            flash(
+                f"Cannot issue: Student already has an active/overdue rental (#{existing_rental['rental_id']}). Process its return first.",
+                "error"
+            )
             return redirect(url_for("admin_rentals"))
 
         due_at = datetime.now() + timedelta(days=2)
         execute("UPDATE reservations SET status = 'completed' WHERE reservation_id = %s", (reservation_id,))
-        execute(
+        new_rental_id = execute(
             """INSERT INTO rentals (student_id, bicycle_id, issued_at, due_at, status, issued_by)
                VALUES (%s, %s, NOW(), %s, 'active', %s)""",
             (res["student_id"], res["bicycle_id"], due_at, session.get("staff_name", "Staff"))
         )
         execute("UPDATE bicycles SET status = 'rented' WHERE bicycle_id = %s", (res["bicycle_id"],))
+        create_notification(
+            res["student_id"],
+            "Bicycle Checked Out 🚲",
+            f"Your bicycle '{res['model']}' (Bike #{res['bicycle_id']}) is ready and checked out. Return due by {due_at.strftime('%b %d, %Y %I:%M %p')}.",
+            "success",
+            rental_id=new_rental_id if isinstance(new_rental_id, int) else None
+        )
         flash(f"Reservation #{reservation_id} issued as active rental (Due in 2 days). ✅", "success")
     else:
         flash("Reservation not found or cannot be issued.", "error")
@@ -829,12 +1275,23 @@ def issue_reservation(reservation_id):
 @admin_required
 def cancel_reservation_admin(reservation_id):
     """Admin: cancel a reservation and make bicycle available again."""
-    res = query("SELECT * FROM reservations WHERE reservation_id = %s", (reservation_id,), fetch="one")
+    res = query(
+        """SELECT res.*, b.model FROM reservations res
+           JOIN bicycles b ON res.bicycle_id = b.bicycle_id
+           WHERE res.reservation_id = %s""",
+        (reservation_id,), fetch="one"
+    )
     if res and res["status"] in ("pending", "confirmed"):
         execute("UPDATE reservations SET status = 'cancelled' WHERE reservation_id = %s", (reservation_id,))
         execute(
             "UPDATE bicycles SET status = 'available' WHERE bicycle_id = %s AND status = 'reserved'",
             (res["bicycle_id"],)
+        )
+        create_notification(
+            res["student_id"],
+            "Reservation Cancelled by Staff",
+            f"Your reservation #{reservation_id} for '{res['model']}' was cancelled by administration.",
+            "warning"
         )
         flash(f"Reservation #{reservation_id} cancelled. Bicycle returned to available pool.", "success")
     else:
@@ -842,30 +1299,12 @@ def cancel_reservation_admin(reservation_id):
     return redirect(url_for("admin_rentals"))
 
 
-# ─────────────────────────────────────────────────────────────
-# BACKGROUND JOB: Mark overdue rentals (call via cron or periodic task)
-# ─────────────────────────────────────────────────────────────
-
 @app.route("/admin/sync-overdue", methods=["POST"])
 @admin_required
 def sync_overdue():
     """Mark active rentals past their due date as overdue."""
-    count = execute(
-        "UPDATE rentals SET status='overdue' WHERE status='active' AND due_at < NOW()"
-    )
-    # Also expire old pending reservations
-    execute(
-        "UPDATE reservations SET status='cancelled' WHERE status IN ('pending','confirmed') AND expires_at < NOW()"
-    )
-    # Free bikes from expired reservations
-    execute(
-        """UPDATE bicycles SET status='available'
-           WHERE status='reserved'
-           AND bicycle_id NOT IN (
-               SELECT bicycle_id FROM reservations WHERE status IN ('pending','confirmed')
-           )"""
-    )
-    flash("Overdue sync complete.", "success")
+    auto_sync_status()
+    flash("Fleet synchronization and overdue check complete. ✅", "success")
     return redirect(url_for("admin_dashboard"))
 
 

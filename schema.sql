@@ -49,18 +49,15 @@ CREATE TABLE IF NOT EXISTS students (
     created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS staff (
-    staff_id INT NOT NULL AUTO_INCREMENT,
-    name VARCHAR(150) NOT NULL,
-    email VARCHAR(150) NOT NULL,
-    phone VARCHAR(20) DEFAULT NULL,
-    role ENUM('admin', 'staff', 'manager') NOT NULL DEFAULT 'staff',
-    password VARCHAR(255) NOT NULL DEFAULT 'staff123',
-    created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (staff_id),
-    UNIQUE KEY email (email)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COLLATE=utf8mb4_unicode_ci;
+    staff_id      INT AUTO_INCREMENT PRIMARY KEY,
+    name          VARCHAR(150) NOT NULL,
+    email         VARCHAR(150) NOT NULL UNIQUE,
+    phone         VARCHAR(20)  DEFAULT NULL,
+    role          ENUM('admin','staff','manager') NOT NULL DEFAULT 'staff',
+    password_hash VARCHAR(255) NOT NULL DEFAULT '',
+    created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ------------------------------------------------------------
 -- Table: rentals
 -- Records of bicycle rentals (issued & returned)
@@ -94,38 +91,22 @@ CREATE TABLE IF NOT EXISTS reservations (
     FOREIGN KEY (bicycle_id)  REFERENCES bicycles(bicycle_id)  ON DELETE CASCADE,
     FOREIGN KEY (station_id)  REFERENCES stations(station_id)  ON DELETE CASCADE
 );
-CREATE TABLE IF NOT EXISTS notifications (
-    notification_id INT NOT NULL AUTO_INCREMENT,
-    rental_id INT NOT NULL,
-    student_id INT NOT NULL,
-    message TEXT COLLATE utf8mb4_unicode_ci NOT NULL,
-    notification_type VARCHAR(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-    status VARCHAR(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'unread',
-    PRIMARY KEY (notification_id),
-    KEY fk_notifications_rental (rental_id),
-    KEY fk_notifications_student (student_id),
-    CONSTRAINT fk_notifications_rental
-        FOREIGN KEY (rental_id)
-        REFERENCES rentals (rental_id),
-    CONSTRAINT fk_notifications_student
-        FOREIGN KEY (student_id)
-        REFERENCES students (student_id)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------
--- Table: staff
--- Admin and staff accounts for the management portal
+-- Table: notifications
+-- Alerts and communications to students
 -- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS staff (
-    staff_id      INT AUTO_INCREMENT PRIMARY KEY,
-    name          VARCHAR(150) NOT NULL,
-    email         VARCHAR(150) NOT NULL UNIQUE,
-    phone         VARCHAR(20)  DEFAULT NULL,
-    role          ENUM('admin','staff','manager') NOT NULL DEFAULT 'staff',
-    password_hash VARCHAR(255) NOT NULL DEFAULT '',
-    created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS notifications (
+    notification_id   INT AUTO_INCREMENT PRIMARY KEY,
+    student_id        INT          NOT NULL,
+    rental_id         INT          DEFAULT NULL,
+    title             VARCHAR(150) NOT NULL DEFAULT 'Notification',
+    message           TEXT         NOT NULL,
+    notification_type VARCHAR(50)  NOT NULL DEFAULT 'info',
+    status            VARCHAR(30)  NOT NULL DEFAULT 'unread',
+    created_at        TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE,
+    FOREIGN KEY (rental_id)  REFERENCES rentals(rental_id)   ON DELETE SET NULL
 );
 
 -- ============================================================
