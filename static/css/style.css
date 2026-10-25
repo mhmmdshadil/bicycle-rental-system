@@ -131,8 +131,18 @@ small { font-size: .8rem; color: var(--text-light); }
 .btn-ghost { background: var(--border); color: var(--text-mid); }
 .btn-ghost:hover { background: #e0dbd4; }
 .btn-sm { padding: 7px 16px; font-size: .82rem; }
-.btn-danger { background: var(--danger); color: #fff; }
-.btn-danger:hover { background: #c84040; }
+.btn-danger { background: var(--danger); color: #fff; box-shadow: 0 2px 8px rgba(224,96,96,.25); }
+.btn-danger:hover { background: #c84040; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(224,96,96,.35); }
+.btn-outline-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1.5px solid var(--danger);
+}
+.btn-outline-danger:hover {
+  background: #fdecea;
+  color: #c84040;
+  transform: translateY(-1px);
+}
 .btn-success { background: var(--success); color: #fff; }
 .btn-success:hover { background: #399e6f; }
 .btn-dark { background: #2b3a4a; color: #fff; }

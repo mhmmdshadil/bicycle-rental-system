@@ -35,6 +35,7 @@ No authentication required for frictionless navigation:
   - Active and historical rental logs.
   - Due date alerts and overdue warnings.
   - Status tracking for bicycle reservations.
+  - Self-service reservation cancellation: students can cancel their own active reservation with one click, immediately releasing the bicycle back to available.
 
 ### 3. Admin Panel Flow
 - **Admin Dashboard (`/admin`)** (`templates/admin_dashboard.html`):
