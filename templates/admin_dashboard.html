@@ -542,7 +542,7 @@
             <tbody>
               {% for s in students_list %}
               <tr>
-                <td><strong>#{{ s.student_id }}</strong></td>
+                <td><strong>#{{ s.display_student_id if s.display_student_id is defined else loop.index }}</strong></td>
                 <td><strong>{{ s.name }}</strong></td>
                 <td><code style="background:#f4f0eb; padding:2px 6px; border-radius:4px; font-size:.85rem;">{{ s.roll_number }}</code></td>
                 <td>{{ s.email }}</td>

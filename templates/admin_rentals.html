@@ -147,10 +147,10 @@
             <tr class="{% if r.status == 'overdue' %}overdue-row{% endif %}">
               <td>
                 {% if r.record_type == 'reservation' %}
-                  <strong>#RES-{{ r.reservation_id }}</strong>
+                  <strong>#RES-{{ r.display_reservation_id if r.display_reservation_id is defined else r.reservation_id }}</strong>
                   <div style="font-size:0.75rem; color:var(--text-light);">Reservation</div>
                 {% else %}
-                  <strong>#RNT-{{ r.rental_id }}</strong>
+                  <strong>#RNT-{{ r.display_rental_id if r.display_rental_id is defined else r.rental_id }}</strong>
                   <div style="font-size:0.75rem; color:var(--text-light);">Active Rental</div>
                 {% endif %}
               </td>
@@ -171,12 +171,12 @@
                   <span class="{% if r.status in ['pending','confirmed'] %}text-primary{% else %}text-light{% endif %}" style="font-weight:600;">
                     {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                   </span>
-                  <div style="font-size:0.75rem; color:var(--text-light);">Expires</div>
+                  <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Expires soon</div>
                 {% else %}
                   <span style="font-weight:600;" class="{% if r.status == 'overdue' %}text-danger{% endif %}">
                     {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                   </span>
-                  <div style="font-size:0.75rem; color:var(--text-light);">Due</div>
+                  <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Due soon</div>
                 {% endif %}
               </td>
               <td>
@@ -189,7 +189,6 @@
                 {% if r.record_type == 'reservation' %}
                   {% if r.status in ['pending', 'confirmed'] %}
                   <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    <!-- Hidden Issue Form -->
                     <form method="post" action="{{ url_for('issue_reservation', reservation_id=r.reservation_id) }}"
                           id="issue-form-{{ r.reservation_id }}" style="display:none;"></form>
                     <button type="button" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;"
@@ -201,7 +200,6 @@
                       Issue Bike ✓
                     </button>
 
-                    <!-- Hidden Cancel Form -->
                     <form method="post" action="{{ url_for('cancel_reservation_admin', reservation_id=r.reservation_id) }}"
                           id="admin-cancel-form-{{ r.reservation_id }}" style="display:none;"></form>
                     <button type="button" class="btn btn-outline btn-sm" style="color:var(--danger); border-color:var(--danger); padding:4px 8px; font-size:0.8rem;"
@@ -221,18 +219,28 @@
                   {% endif %}
                 {% else %}
                   {% if r.status == 'active' or r.status == 'overdue' %}
-                  <!-- Hidden Return Form -->
-                  <form method="post" action="{{ url_for('return_rental', rental_id=r.rental_id) }}"
-                        id="return-form-{{ r.rental_id }}" style="display:none;"></form>
-                  <button type="button" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;"
-                          id="return-btn-{{ r.rental_id }}"
-                          data-form-id="return-form-{{ r.rental_id }}"
-                          data-rental-id="{{ r.rental_id }}"
-                          data-student="{{ r.student_name }}"
-                          data-model="{{ r.model }}"
-                          onclick="openReturnModal(this.dataset.formId, this.dataset.rentalId, this.dataset.student, this.dataset.model)">
-                    Mark Returned ✓
-                  </button>
+                  <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-start;">
+                    <form method="post" action="{{ url_for('return_rental', rental_id=r.rental_id) }}"
+                          id="return-form-{{ r.rental_id }}" style="display:none;"></form>
+                    <button type="button" class="btn btn-success btn-sm" style="padding:4px 10px; font-size:0.8rem;"
+                            id="return-btn-{{ r.rental_id }}"
+                            data-form-id="return-form-{{ r.rental_id }}"
+                            data-rental-id="{{ r.rental_id }}"
+                            data-student="{{ r.student_name }}"
+                            data-model="{{ r.model }}"
+                            onclick="openReturnModal(this.dataset.formId, this.dataset.rentalId, this.dataset.student, this.dataset.model)">
+                      Mark Returned ✓
+                    </button>
+                    {% if r.fine_amount and r.fine_amount > 0 and r.fine_paid != 1 %}
+                    <form method="post" action="{{ url_for('mark_rental_fine_paid', rental_id=r.rental_id) }}" style="margin:0;">
+                      <button type="submit" class="btn btn-outline btn-sm" style="padding:4px 8px; font-size:0.75rem;">
+                        Mark Fine Paid ₹{{ '%.2f' % r.fine_amount }}
+                      </button>
+                    </form>
+                    {% elif r.fine_paid == 1 %}
+                    <small style="color:var(--success); font-weight:600;">Fine Paid ✓</small>
+                    {% endif %}
+                  </div>
                   {% else %}
                   <small style="color:var(--text-light);">Returned: {{ r.returned_at.strftime('%b %d, %I:%M %p') if r.returned_at else 'Yes' }}</small>
                   {% endif %}
@@ -299,6 +307,37 @@
       });
     }
   });
+
+  function updateCountdowns() {
+    const countdownEls = document.querySelectorAll('.countdown-text');
+    countdownEls.forEach(el => {
+      const target = el.dataset.target;
+      if (!target) {
+        el.textContent = '—';
+        return;
+      }
+      const targetTime = new Date(target).getTime();
+      const diff = targetTime - Date.now();
+      if (diff <= 0) {
+        el.textContent = 'Expired';
+        el.style.color = 'var(--danger)';
+        return;
+      }
+      const totalSeconds = Math.floor(diff / 1000);
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const label = days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m ${seconds}s`;
+      el.textContent = `Due in ${label}`;
+      if (hours < 6) {
+        el.style.color = 'var(--danger)';
+      }
+    });
+  }
+
+  updateCountdowns();
+  setInterval(updateCountdowns, 1000);
 
   // Auto-dismiss flashes
   setTimeout(() => {

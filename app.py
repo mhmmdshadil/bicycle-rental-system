@@ -287,10 +287,43 @@ def auto_sync_status(force=False):
                   )
             """)
 
+            overdue_rows = query(
+                """
+                SELECT rental_id, student_id, due_at, bicycle_id
+                FROM rentals
+                WHERE status IN ('active', 'overdue') AND due_at < NOW()
+                ORDER BY due_at ASC
+                """
+            ) or []
+            for rental in overdue_rows:
+                due_at = rental.get("due_at")
+                if not due_at:
+                    continue
+                fine_amount, late_days = calculate_overdue_fine(due_at, datetime.now())
+                execute(
+                    """
+                    UPDATE rentals
+                    SET status = 'overdue',
+                        late_days = %s,
+                        fine_amount = %s,
+                        fine_paid = CASE WHEN fine_paid = 1 THEN 1 ELSE 0 END
+                    WHERE rental_id = %s
+                    """,
+                    (late_days, fine_amount, rental["rental_id"]),
+                )
+                if fine_amount > 0:
+                    create_notification(
+                        rental["student_id"],
+                        "Late Return Fine Updated 💳",
+                        f"Your rental is overdue. Current outstanding fine: ₹{fine_amount:.2f}. Please settle it with campus administration.",
+                        "warning",
+                        rental_id=rental["rental_id"],
+                    )
+
             execute("""
                 UPDATE rentals
-                SET status = 'overdue'
-                WHERE status = 'active' AND due_at < NOW()
+                SET status = 'active'
+                WHERE status = 'overdue' AND due_at >= NOW()
             """)
         except Exception as e:
             print(f"[AUTO-SYNC] {e}")
@@ -314,14 +347,94 @@ def ensure_indexes():
             pass
 
 
+def ensure_database_columns():
+    """Ensure fine-tracking columns exist for overdue rentals in MySQL-compatible syntax."""
+    existing = query(
+        "SHOW COLUMNS FROM rentals LIKE 'fine_amount'",
+        fetch="one",
+    )
+    if not existing:
+        execute("ALTER TABLE rentals ADD COLUMN fine_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00")
+
+    existing = query(
+        "SHOW COLUMNS FROM rentals LIKE 'fine_paid'",
+        fetch="one",
+    )
+    if not existing:
+        execute("ALTER TABLE rentals ADD COLUMN fine_paid TINYINT(1) NOT NULL DEFAULT 0")
+
+    existing = query(
+        "SHOW COLUMNS FROM rentals LIKE 'fine_paid_at'",
+        fetch="one",
+    )
+    if not existing:
+        execute("ALTER TABLE rentals ADD COLUMN fine_paid_at DATETIME NULL")
+
+    existing = query(
+        "SHOW COLUMNS FROM rentals LIKE 'late_days'",
+        fetch="one",
+    )
+    if not existing:
+        execute("ALTER TABLE rentals ADD COLUMN late_days INT NOT NULL DEFAULT 0")
+
+
+ensure_database_columns()
+
+
+def get_homepage_stats():
+    """Return the live station, bicycle, and bike-type totals for the landing page."""
+    stats = query(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM stations) AS total_stations,
+            (SELECT COUNT(*) FROM bicycles) AS total_bikes,
+            (SELECT COUNT(*) FROM bicycles WHERE status = 'available') AS available_bikes,
+            (SELECT COUNT(DISTINCT type) FROM bicycles) AS total_types
+        """,
+        fetch="one",
+    ) or {}
+
+    return {
+        "stations": int(stats.get("total_stations") or 0),
+        "bicycles": int(stats.get("total_bikes") or 0),
+        "types": int(stats.get("total_types") or 0),
+        "available": int(stats.get("available_bikes") or 0),
+    }
+
+
+def assign_display_ids(items, display_key):
+    """Assign a sequential display ID based on current-order list without modifying the DB PKs."""
+    ordered_items = list(items or [])
+    for index, item in enumerate(ordered_items, start=1):
+        item[display_key] = index
+    return ordered_items
+
+
+def assign_student_display_ids(students):
+    """Add a sequential display ID that matches the registered-student order, independent of DB PK gaps."""
+    return assign_display_ids(students, "display_student_id")
+
+
+def calculate_overdue_fine(due_at, now=None):
+    """Calculate the current fine for an overdue rental using a daily rate."""
+    now = now or datetime.now()
+    if not due_at:
+        return 0.0, 0
+    if due_at <= now:
+        delta = now - due_at
+        overdue_days = max(1, int(delta.total_seconds() // 86400) + 1)
+        return round(overdue_days * 25.0, 2), overdue_days
+    return 0.0, 0
+
+
 # ─────────────────────────────────────────────────────────────
 # HERO / LANDING PAGE
 # ─────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    """Hero landing page."""
-    return render_template("index.html")
+    """Hero landing page with live fleet statistics."""
+    return render_template("index.html", stats=get_homepage_stats())
 
 
 # ─────────────────────────────────────────────────────────────
@@ -595,6 +708,14 @@ def reserve_bicycle(bicycle_id):
     student_id = session["student_id"]
     expires_at = datetime.now() + timedelta(hours=2)
 
+    unpaid_fine = query(
+        "SELECT COALESCE(SUM(fine_amount), 0) AS total FROM rentals WHERE student_id = %s AND fine_paid = 0 AND status IN ('active', 'overdue')",
+        (student_id,), fetch="one",
+    )
+    if unpaid_fine and float(unpaid_fine.get("total") or 0) > 0:
+        flash(f"You have an outstanding offline fine of ₹{float(unpaid_fine['total']):.2f}. Please settle it with campus administration before reserving another bicycle.", "error")
+        return redirect(url_for("student_notifications"))
+
     # Check for an existing active or overdue rental
     existing_rental = query(
         "SELECT rental_id FROM rentals WHERE student_id = %s AND status IN ('active', 'overdue')",
@@ -716,28 +837,35 @@ def student_notifications():
         (student_id,),
     ) or []
 
-    rentals = query(
-        """SELECT r.rental_id, r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
-                  b.bicycle_id, b.model, b.type,
-                  s.name AS station_name
-           FROM rentals r
-           JOIN bicycles b ON r.bicycle_id = b.bicycle_id
-           JOIN stations s ON b.station_id = s.station_id
-           WHERE r.student_id = %s
-           ORDER BY r.issued_at DESC""",
-        (student_id,),
+    rentals = assign_display_ids(
+        query(
+            """SELECT r.rental_id, r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
+                      r.fine_amount, r.fine_paid, r.late_days,
+                      b.bicycle_id, b.model, b.type,
+                      s.name AS station_name
+               FROM rentals r
+               JOIN bicycles b ON r.bicycle_id = b.bicycle_id
+               JOIN stations s ON b.station_id = s.station_id
+               WHERE r.student_id = %s
+               ORDER BY r.issued_at DESC""",
+            (student_id,),
+        ) or [],
+        "display_rental_id",
     )
 
-    reservations = query(
-        """SELECT res.reservation_id, res.reserved_at, res.expires_at, res.status,
-                  b.bicycle_id, b.model, b.type,
-                  s.name AS station_name
-           FROM reservations res
-           JOIN bicycles b ON res.bicycle_id = b.bicycle_id
-           JOIN stations s ON res.station_id = s.station_id
-           WHERE res.student_id = %s
-           ORDER BY res.reserved_at DESC""",
-        (student_id,),
+    reservations = assign_display_ids(
+        query(
+            """SELECT res.reservation_id, res.reserved_at, res.expires_at, res.status,
+                      b.bicycle_id, b.model, b.type,
+                      s.name AS station_name
+               FROM reservations res
+               JOIN bicycles b ON res.bicycle_id = b.bicycle_id
+               JOIN stations s ON res.station_id = s.station_id
+               WHERE res.student_id = %s
+               ORDER BY res.reserved_at DESC""",
+            (student_id,),
+        ) or [],
+        "display_reservation_id",
     )
 
     unread_count = sum(1 for n in notifications if n.get("status") == "unread")
@@ -825,13 +953,15 @@ def admin_dashboard():
         "SELECT staff_id, name, email, phone, role, created_at FROM staff ORDER BY FIELD(role, 'admin', 'manager', 'staff'), name"
     ) or []
 
-    students_list = query(
-        """SELECT s.student_id, s.name, s.email, s.phone, s.roll_number, s.created_at,
-                  (SELECT COUNT(*) FROM rentals r WHERE r.student_id = s.student_id AND r.status IN ('active', 'overdue')) AS active_rentals_cnt,
-                  (SELECT COUNT(*) FROM reservations res WHERE res.student_id = s.student_id AND res.status IN ('pending', 'confirmed')) AS active_res_cnt
-           FROM students s
-           ORDER BY s.created_at DESC"""
-    ) or []
+    students_list = assign_student_display_ids(
+        query(
+            """SELECT s.student_id, s.name, s.email, s.phone, s.roll_number, s.created_at,
+                      (SELECT COUNT(*) FROM rentals r WHERE r.student_id = s.student_id AND r.status IN ('active', 'overdue')) AS active_rentals_cnt,
+                      (SELECT COUNT(*) FROM reservations res WHERE res.student_id = s.student_id AND res.status IN ('pending', 'confirmed')) AS active_res_cnt
+               FROM students s
+               ORDER BY s.created_at DESC"""
+        ) or []
+    )
 
     notifications_list = query(
         """SELECT n.notification_id, n.student_id, n.title, n.message, n.notification_type, n.status, n.created_at,
@@ -879,13 +1009,16 @@ def admin_stations():
            GROUP BY s.station_id
            ORDER BY s.name"""
     ) or []
-    bikes = query(
-        """SELECT b.bicycle_id, b.station_id, b.model, b.type, b.status, b.added_at,
-                  s.name AS station_name
-           FROM bicycles b
-           JOIN stations s ON b.station_id = s.station_id
-           ORDER BY s.name, b.status, b.bicycle_id"""
-    ) or []
+    bikes = assign_display_ids(
+        query(
+            """SELECT b.bicycle_id, b.station_id, b.model, b.type, b.status, b.added_at,
+                      s.name AS station_name
+               FROM bicycles b
+               JOIN stations s ON b.station_id = s.station_id
+               ORDER BY b.added_at ASC, b.bicycle_id ASC"""
+        ) or [],
+        "display_bicycle_id",
+    )
     return render_template("admin_stations.html", stations=stations, bikes=bikes)
 
 
@@ -1274,6 +1407,7 @@ def admin_rentals():
         SELECT r.rental_id AS record_id, r.rental_id, NULL AS reservation_id,
                'rental' AS record_type,
                r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
+               r.fine_amount, r.fine_paid, r.late_days,
                st.name AS student_name, st.roll_number, st.email,
                b.bicycle_id, b.model, b.type,
                s.name AS station_name
@@ -1287,6 +1421,7 @@ def admin_rentals():
                'reservation' AS record_type,
                res.reserved_at AS issued_at, res.expires_at AS due_at,
                NULL AS returned_at, res.status, 'Online Reservation' AS issued_by,
+               0.00 AS fine_amount, 0 AS fine_paid, 0 AS late_days,
                st.name AS student_name, st.roll_number, st.email,
                b.bicycle_id, b.model, b.type,
                s.name AS station_name
@@ -1297,14 +1432,15 @@ def admin_rentals():
     """
 
     if status_filter == "reserved":
-        records = query(res_base + " ORDER BY res.reserved_at DESC") or []
+        records = assign_display_ids(query(res_base + " ORDER BY res.reserved_at DESC") or [], "display_reservation_id")
     elif status_filter in ("active", "overdue", "returned"):
-        records = query(rentals_base + " WHERE r.status = %s ORDER BY r.issued_at DESC", (status_filter,)) or []
+        records = assign_display_ids(query(rentals_base + " WHERE r.status = %s ORDER BY r.issued_at DESC", (status_filter,)) or [], "display_rental_id")
     else:
         rentals_all      = query(rentals_base) or []
         reservations_all = query(res_base) or []
         records = rentals_all + reservations_all
         records.sort(key=lambda x: x["issued_at"] or datetime.min, reverse=True)
+        records = assign_display_ids(records, "display_record_id")
 
     res_count = query(
         "SELECT COUNT(*) AS cnt FROM reservations WHERE status IN ('pending', 'confirmed')", fetch="one"
@@ -1330,8 +1466,15 @@ def return_rental(rental_id):
         (rental_id,), fetch="one"
     )
     if rental and rental["status"] in ("active", "overdue"):
+        if rental.get("fine_amount") and rental.get("fine_paid") != 1:
+            flash(
+                f"Outstanding fine of ₹{float(rental.get('fine_amount') or 0):.2f} must be marked paid before this rental can be fully closed.",
+                "warning",
+            )
+            return redirect(url_for("admin_rentals"))
         execute(
-            "UPDATE rentals SET status='returned', returned_at=NOW() WHERE rental_id=%s", (rental_id,)
+            "UPDATE rentals SET status='returned', returned_at=NOW(), fine_paid=CASE WHEN fine_paid IS NULL THEN 0 ELSE fine_paid END WHERE rental_id=%s",
+            (rental_id,),
         )
         execute("UPDATE bicycles SET status='available' WHERE bicycle_id=%s", (rental["bicycle_id"],))
         create_notification(
@@ -1347,6 +1490,33 @@ def return_rental(rental_id):
     return redirect(url_for("admin_rentals"))
 
 
+@app.route("/admin/rentals/fine/pay/<int:rental_id>", methods=["POST"])
+@admin_required
+def mark_rental_fine_paid(rental_id):
+    """Admin: mark an overdue rental's offline fine as paid."""
+    rental = query("SELECT * FROM rentals WHERE rental_id = %s", (rental_id,), fetch="one")
+    if not rental:
+        flash("Rental not found.", "error")
+        return redirect(url_for("admin_rentals"))
+
+    ok = execute(
+        "UPDATE rentals SET fine_paid = 1, fine_paid_at = NOW() WHERE rental_id = %s",
+        (rental_id,),
+    )
+    if ok:
+        create_notification(
+            rental["student_id"],
+            "Fine Payment Recorded ✅",
+            f"Your offline fine for rental #{rental_id} has been marked as paid by campus administration.",
+            "success",
+            rental_id=rental_id,
+        )
+        flash(f"Fine for Rental #{rental_id} marked as paid. ✅", "success")
+    else:
+        flash("Unable to update fine payment status.", "error")
+    return redirect(url_for("admin_rentals"))
+
+
 @app.route("/admin/reservations/issue/<int:reservation_id>", methods=["POST"])
 @admin_required
 def issue_reservation(reservation_id):
@@ -1359,6 +1529,17 @@ def issue_reservation(reservation_id):
         (reservation_id,), fetch="one"
     )
     if res and res["status"] in ("pending", "confirmed"):
+        unpaid_fine = query(
+            "SELECT COALESCE(SUM(fine_amount), 0) AS total FROM rentals WHERE student_id = %s AND fine_paid = 0 AND status IN ('active', 'overdue')",
+            (res["student_id"],), fetch="one",
+        )
+        if unpaid_fine and float(unpaid_fine.get("total") or 0) > 0:
+            flash(
+                f"Cannot issue bike: Student has an outstanding offline fine of ₹{float(unpaid_fine['total']):.2f}. Mark it paid before issuing a new bike.",
+                "error",
+            )
+            return redirect(url_for("admin_rentals"))
+
         existing_rental = query(
             "SELECT rental_id FROM rentals WHERE student_id = %s AND status IN ('active', 'overdue')",
             (res["student_id"],), fetch="one"

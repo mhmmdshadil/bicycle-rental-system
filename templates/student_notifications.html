@@ -197,7 +197,7 @@
           <tbody>
             {% for res in reservations %}
             <tr>
-              <td><strong>#RES-{{ res.reservation_id }}</strong></td>
+              <td><strong>#RES-{{ res.display_reservation_id if res.display_reservation_id is defined else res.reservation_id }}</strong></td>
               <td>
                 <div style="font-weight:600;">{{ res.model }}</div>
                 <small class="badge badge-{{ res.type }}">{{ res.type | capitalize }}</small>
@@ -208,6 +208,7 @@
                 <span class="{% if res.status in ['pending', 'confirmed'] %}text-primary{% else %}text-light{% endif %}" style="font-weight:600;">
                   {{ res.expires_at.strftime('%b %d, %Y %I:%M %p') if res.expires_at else '—' }}
                 </span>
+                <div class="countdown-text" data-target="{{ res.expires_at.strftime('%Y-%m-%dT%H:%M:%S') if res.expires_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Expires soon</div>
                 {% if res.status in ['pending', 'confirmed'] and res.expires_at and res.expires_at < now %}
                   <br><small class="text-danger">Expired</small>
                 {% endif %}
@@ -273,7 +274,7 @@
           <tbody>
             {% for r in rentals %}
             <tr class="{% if r.status == 'overdue' %}overdue-row{% endif %}">
-              <td><strong>#R-{{ r.rental_id }}</strong></td>
+              <td><strong>#R-{{ r.display_rental_id if r.display_rental_id is defined else r.rental_id }}</strong></td>
               <td>
                 <div style="font-weight:600;">{{ r.model }}</div>
                 <small class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</small>
@@ -284,6 +285,7 @@
                 <div style="font-weight:600;" class="{% if r.status == 'overdue' %}text-danger{% endif %}">
                   {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                 </div>
+                <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Due soon</div>
                 {% if r.status == 'active' and r.due_at and r.due_at < now %}
                   <small style="color:var(--danger); font-weight:700;">⚠️ Overdue now!</small>
                 {% elif r.status == 'overdue' %}
@@ -293,6 +295,11 @@
               <td>{{ r.returned_at.strftime('%b %d, %Y %I:%M %p') if r.returned_at else '—' }}</td>
               <td>
                 <span class="badge badge-{{ r.status }}">{{ r.status | capitalize }}</span>
+                {% if r.fine_amount and r.fine_amount > 0 %}
+                  <div style="margin-top:6px; font-size:0.75rem; color:var(--text-light);">
+                    Fine: ₹{{ '%.2f' % r.fine_amount }}{% if r.fine_paid %} • Paid{% else %} • Unpaid{% endif %}
+                  </div>
+                {% endif %}
               </td>
               <td>{{ r.issued_by or 'Staff' }}</td>
             </tr>
@@ -336,6 +343,37 @@
   document.getElementById('cancel-modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal('cancel-modal');
   });
+
+  function updateCountdowns() {
+    const countdownEls = document.querySelectorAll('.countdown-text');
+    countdownEls.forEach(el => {
+      const target = el.dataset.target;
+      if (!target) {
+        el.textContent = '—';
+        return;
+      }
+      const targetTime = new Date(target).getTime();
+      const diff = targetTime - Date.now();
+      if (diff <= 0) {
+        el.textContent = 'Expired';
+        el.style.color = 'var(--danger)';
+        return;
+      }
+      const totalSeconds = Math.floor(diff / 1000);
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const label = days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m ${seconds}s`;
+      el.textContent = `Due in ${label}`;
+      if (hours < 6) {
+        el.style.color = 'var(--danger)';
+      }
+    });
+  }
+
+  updateCountdowns();
+  setInterval(updateCountdowns, 1000);
 
   // Auto-dismiss flashes
   setTimeout(() => {
