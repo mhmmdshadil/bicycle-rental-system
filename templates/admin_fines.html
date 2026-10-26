@@ -222,9 +222,11 @@
                 {% endif %}
               </td>
               <td>
-                <strong style="font-size:1.05rem; color:{% if f.fine_paid %}var(--success){% else %}var(--danger){% endif %};">
-                  ₹{{ '%.2f' % f.fine_amount }}
-                </strong>
+                {% if f.fine_paid %}
+                  <strong style="font-size:1.05rem; color:var(--success);">₹{{ '%.2f' % f.fine_amount }}</strong>
+                {% else %}
+                  <strong style="font-size:1.05rem; color:var(--danger);">₹{{ '%.2f' % f.fine_amount }}</strong>
+                {% endif %}
                 {% if f.status == 'overdue' and not f.fine_paid %}
                   <!-- Live fine counter for still-overdue unfixed rentals -->
                   <div style="font-size:0.72rem; color:var(--danger);" id="fine-live-{{ f.rental_id }}"
