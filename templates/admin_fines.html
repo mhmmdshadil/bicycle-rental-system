@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fine Management – CampusCycle Admin</title>
+  <meta name="description" content="Manage and track offline late-return fines. Mark fines as paid after collecting offline." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <style>
+    .kpi-fine-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .kpi-fine-card {
+      background: var(--white);
+      border-radius: var(--radius-s);
+      border: 1px solid var(--border);
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .kpi-fine-card .kpi-label { font-size: 0.75rem; color: var(--text-light); text-transform: uppercase; letter-spacing: .05em; }
+    .kpi-fine-card .kpi-val   { font-size: 1.6rem; font-weight: 700; color: var(--text); }
+    .kpi-fine-card.danger  { border-left: 4px solid var(--danger); }
+    .kpi-fine-card.success { border-left: 4px solid var(--success); }
+    .kpi-fine-card.info    { border-left: 4px solid var(--primary); }
+
+    .fine-status-paid { color: var(--success); font-weight: 600; }
+    .fine-status-unpaid { color: var(--danger); font-weight: 600; }
+
+    /* confirm-modal for mark-paid */
+    .mark-paid-note {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.82rem;
+      color: #92400e;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Admin Navbar ───────────────────────────────────────── -->
+<nav class="navbar">
+  <div class="container">
+    <a href="{{ url_for('index') }}" class="navbar-brand">
+      <div class="logo-icon" style="background:#2b3a4a;">🚲</div>
+      CampusCycle <span class="admin-tag">Admin</span>
+    </a>
+    <div class="navbar-links">
+      <a href="{{ url_for('admin_dashboard') }}" class="nav-link" id="nav-admin-dash">
+        <span>📊</span> <span>Dashboard</span>
+      </a>
+      <a href="{{ url_for('admin_stations') }}" class="nav-link" id="nav-admin-stations">
+        <span>🚉</span> <span>Stations &amp; Bikes</span>
+      </a>
+      <a href="{{ url_for('admin_rentals') }}" class="nav-link" id="nav-admin-rentals">
+        <span>📋</span> <span>Rental Records</span>
+      </a>
+      <a href="{{ url_for('admin_fines') }}" class="nav-link active" id="nav-admin-fines">
+        <span>💳</span> <span>Fines</span>
+        {% if summary.unpaid_count and summary.unpaid_count > 0 %}
+          <span class="nav-badge" style="background:var(--danger);">{{ summary.unpaid_count }}</span>
+        {% endif %}
+      </a>
+      <div class="nav-user" style="background:#2b3a4a1a; border-color:#2b3a4a33; color:#2b3a4a;">
+        <div class="avatar" style="background:#2b3a4a;">{{ session.staff_name[0].upper() if session.staff_name else 'A' }}</div>
+        <span>{{ session.staff_name.split()[0] if session.staff_name else 'Admin' }}</span>
+        <span class="badge badge-{{ session.staff_role or 'admin' }}" style="padding:2px 8px; font-size:.68rem;">{{ (session.staff_role or 'admin') | capitalize }}</span>
+      </div>
+      <a href="{{ url_for('admin_logout') }}" class="btn btn-ghost btn-sm" id="admin-logout-btn" style="margin-left:4px;">Sign Out</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Flash Messages ─────────────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-wrap" id="flash-container">
+      {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ '✅' if cat == 'success' else '❌' }} {{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<!-- ── Mark Fine Paid Confirm Modal ─────────────────────── -->
+<div class="modal-overlay" id="mark-paid-modal">
+  <div class="modal">
+    <div class="modal-icon">💳</div>
+    <h3>Mark Fine as Paid?</h3>
+    <div class="mark-paid-note">
+      ⚠️ This action confirms that the fine was <strong>collected offline</strong> (cash/card at the campus office).
+      It <strong>cannot be undone</strong>. Ensure payment has actually been received before proceeding.
+    </div>
+    <p id="mark-paid-modal-msg" style="margin-bottom:14px;">Mark this fine as paid?</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeMarkPaidModal()" id="cancel-mark-paid-btn">Cancel</button>
+      <button type="button" class="btn btn-success" id="confirm-mark-paid-btn" onclick="submitMarkPaidForm()">Confirm – Fine Collected ✓</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <div class="container section">
+
+    <!-- Page Header -->
+    <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px; margin-bottom:24px;">
+      <div>
+        <h1>Offline Fine Management 💳</h1>
+        <p>Track all late-return fines. Fines are paid offline at the campus administration office.
+           Mark them as collected here only after cash/card payment is physically received.</p>
+      </div>
+      <a href="{{ url_for('admin_rentals', status='overdue') }}" class="btn btn-ghost btn-sm" id="view-overdue-btn">
+        View Overdue Rentals →
+      </a>
+    </div>
+
+    <!-- ── KPI Summary Cards ──────────────────────────────── -->
+    <div class="kpi-fine-grid">
+      <div class="kpi-fine-card danger">
+        <div class="kpi-label">Outstanding (Unpaid)</div>
+        <div class="kpi-val">₹{{ '%.2f' % (summary.total_unpaid | float) }}</div>
+        <small style="color:var(--text-light);">{{ summary.unpaid_count or 0 }} case(s)</small>
+      </div>
+      <div class="kpi-fine-card success">
+        <div class="kpi-label">Collected (Paid)</div>
+        <div class="kpi-val">₹{{ '%.2f' % (summary.total_collected | float) }}</div>
+        <small style="color:var(--text-light);">{{ summary.paid_count or 0 }} case(s)</small>
+      </div>
+      <div class="kpi-fine-card info">
+        <div class="kpi-label">Total Fines Issued</div>
+        <div class="kpi-val">{{ summary.total_fines or 0 }}</div>
+        <small style="color:var(--text-light);">Total ₹{{ '%.2f' % ((summary.total_unpaid | float) + (summary.total_collected | float)) }}</small>
+      </div>
+      <div class="kpi-fine-card" style="border-left:4px solid #f59e0b;">
+        <div class="kpi-label">Rate (₹/day)</div>
+        <div class="kpi-val">₹25</div>
+        <small style="color:var(--text-light);">Charged per overdue day</small>
+      </div>
+    </div>
+
+    <!-- ── Filter Tabs ────────────────────────────────────── -->
+    <div class="flex-between mb-16" style="flex-wrap:wrap; gap:12px;">
+      <div class="filter-tabs">
+        <a href="{{ url_for('admin_fines', paid='all') }}"
+           class="filter-tab {% if paid_filter == 'all' %}active{% endif %}" id="filter-all-fines">All Fines</a>
+        <a href="{{ url_for('admin_fines', paid='unpaid') }}"
+           class="filter-tab {% if paid_filter == 'unpaid' %}active{% endif %}" id="filter-unpaid-fines">
+          Unpaid
+          {% if summary.unpaid_count and summary.unpaid_count > 0 %}
+            <span class="nav-badge" style="background:var(--danger); font-size:0.72rem; padding:2px 7px; margin-left:4px;">{{ summary.unpaid_count }}</span>
+          {% endif %}
+        </a>
+        <a href="{{ url_for('admin_fines', paid='paid') }}"
+           class="filter-tab {% if paid_filter == 'paid' %}active{% endif %}" id="filter-paid-fines">
+          Paid / Collected
+        </a>
+      </div>
+    </div>
+
+    <!-- ── Fines Table ────────────────────────────────────── -->
+    <div class="card" style="padding:0; overflow:hidden;">
+      {% if fines %}
+      <div class="table-wrap" style="border:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Rental ID</th>
+              <th>Student</th>
+              <th>Bicycle</th>
+              <th>Station</th>
+              <th>Due Date</th>
+              <th>Days Overdue</th>
+              <th>Fine Amount</th>
+              <th>Rental Status</th>
+              <th>Fine Status</th>
+              <th>Paid At</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in fines %}
+            <tr class="{% if f.status == 'overdue' %}overdue-row{% endif %}">
+              <td><strong>#RNT-{{ f.rental_id }}</strong></td>
+              <td>
+                <div style="font-weight:600;">{{ f.student_name }}</div>
+                <div style="font-size:0.78rem; color:var(--text-light);">{{ f.roll_number }}</div>
+                <div style="font-size:0.75rem; color:var(--text-light);">{{ f.email }}</div>
+              </td>
+              <td>
+                <div style="font-weight:600;">{{ f.model }}</div>
+                <small class="badge badge-{{ f.type }}">{{ f.type | capitalize }}</small>
+              </td>
+              <td>📍 {{ f.station_name }}</td>
+              <td>
+                <span class="{% if f.status == 'overdue' %}text-danger{% endif %}" style="font-weight:600;">
+                  {{ f.due_at.strftime('%b %d, %Y %I:%M %p') if f.due_at else '—' }}
+                </span>
+                {% if f.status == 'overdue' %}
+                  <div class="countdown-text"
+                       data-target="{{ f.due_at.strftime('%Y-%m-%dT%H:%M:%S') if f.due_at else '' }}"
+                       style="font-size:0.72rem; color:var(--danger); margin-top:2px;">—</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if f.late_days and f.late_days > 0 %}
+                  <span style="color:var(--danger); font-weight:700;">{{ f.late_days }}d</span>
+                {% elif f.status == 'overdue' %}
+                  <span style="color:var(--danger);" id="late-days-{{ f.rental_id }}"
+                        data-due="{{ f.due_at.strftime('%Y-%m-%dT%H:%M:%S') if f.due_at else '' }}">—</span>
+                {% else %}
+                  <span style="color:var(--text-light);">{{ f.late_days or 0 }}d</span>
+                {% endif %}
+              </td>
+              <td>
+                <strong style="font-size:1.05rem; color:{% if f.fine_paid %}var(--success){% else %}var(--danger){% endif %};">
+                  ₹{{ '%.2f' % f.fine_amount }}
+                </strong>
+                {% if f.status == 'overdue' and not f.fine_paid %}
+                  <!-- Live fine counter for still-overdue unfixed rentals -->
+                  <div style="font-size:0.72rem; color:var(--danger);" id="fine-live-{{ f.rental_id }}"
+                       data-due="{{ f.due_at.strftime('%Y-%m-%dT%H:%M:%S') if f.due_at else '' }}">
+                    (updating…)
+                  </div>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge badge-{{ f.status }}">{{ f.status | capitalize }}</span>
+              </td>
+              <td>
+                {% if f.fine_paid %}
+                  <span class="fine-status-paid">✅ Paid</span>
+                {% else %}
+                  <span class="fine-status-unpaid">⏳ Unpaid</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if f.fine_paid_at %}
+                  <span style="font-size:0.82rem; color:var(--success);">{{ f.fine_paid_at.strftime('%b %d, %Y %I:%M %p') }}</span>
+                {% else %}
+                  <span style="color:var(--text-light);">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if not f.fine_paid %}
+                <!-- Mark Fine Paid button – requires confirmation modal to prevent accidental clicks -->
+                <form method="post" action="{{ url_for('mark_rental_fine_paid', rental_id=f.rental_id) }}"
+                      id="mark-paid-form-{{ f.rental_id }}" style="display:none; margin:0;"></form>
+                <button type="button"
+                        class="btn btn-success btn-sm"
+                        style="padding:4px 10px; font-size:0.8rem;"
+                        id="mark-paid-btn-{{ f.rental_id }}"
+                        data-form-id="mark-paid-form-{{ f.rental_id }}"
+                        data-rental-id="{{ f.rental_id }}"
+                        data-student="{{ f.student_name }}"
+                        data-amount="{{ '%.2f' % f.fine_amount }}"
+                        onclick="openMarkPaidModal(this.dataset.formId, this.dataset.rentalId, this.dataset.student, this.dataset.amount)">
+                  Mark Paid ✓
+                </button>
+                {% else %}
+                  <span style="font-size:0.82rem; color:var(--text-light);">Collected ✓</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state" style="padding:48px;">
+        <div class="empty-icon">💳</div>
+        {% if paid_filter == 'unpaid' %}
+          <h3>No unpaid fines 🎉</h3>
+          <p class="mt-8">All outstanding fines have been collected. Great job!</p>
+        {% elif paid_filter == 'paid' %}
+          <h3>No collected fines yet</h3>
+          <p class="mt-8">Fine payments marked as collected will appear here.</p>
+        {% else %}
+          <h3>No fines on record</h3>
+          <p class="mt-8">Late-return fines will automatically appear here when rentals exceed their due date.</p>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Safety note -->
+    <div style="margin-top:16px; padding:12px 16px; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; font-size:0.82rem; color:#92400e;">
+      <strong>⚠️ Process Note:</strong> Fines are collected offline at the campus administration desk.
+      Click <em>Mark Paid</em> only after confirming physical payment receipt (cash or card).
+      Once marked paid, a confirmation notification is automatically sent to the student.
+      Fines cannot be unmarked once set to paid — contact a system administrator if an error occurs.
+    </div>
+
+  </div>
+</main>
+
+<script>
+  let activePaidFormId = null;
+
+  function openMarkPaidModal(formId, rentalId, student, amount) {
+    activePaidFormId = formId;
+    document.getElementById('mark-paid-modal-msg').innerHTML =
+      `Confirm that <strong>${student}</strong> has paid the offline fine of <strong>₹${amount}</strong> for Rental <strong>#RNT-${rentalId}</strong>?`;
+    document.getElementById('mark-paid-modal').classList.add('active');
+  }
+
+  function closeMarkPaidModal() {
+    document.getElementById('mark-paid-modal').classList.remove('active');
+    activePaidFormId = null;
+  }
+
+  function submitMarkPaidForm() {
+    if (activePaidFormId) {
+      document.getElementById(activePaidFormId).submit();
+    }
+  }
+
+  document.getElementById('mark-paid-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeMarkPaidModal();
+  });
+
+  // ── Overdue countdown for admin fines page ────────────────────
+  function updateCountdowns() {
+    document.querySelectorAll('.countdown-text').forEach(el => {
+      const target = el.dataset.target;
+      if (!target) { el.textContent = '—'; return; }
+      const diff = new Date(target).getTime() - Date.now();
+      if (diff <= 0) {
+        const s = Math.abs(Math.floor(diff / 1000));
+        const d = Math.floor(s / 86400);
+        const h = Math.floor((s % 86400) / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        el.textContent = d > 0 ? `${d}d ${h}h overdue` : `${h}h ${m}m overdue`;
+        el.style.color = 'var(--danger)';
+      } else {
+        const s = Math.floor(diff / 1000);
+        const d = Math.floor(s / 86400);
+        const h = Math.floor((s % 86400) / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        el.textContent = d > 0 ? `${d}d ${h}h ${m}m left` : `${h}h ${m}m left`;
+      }
+    });
+  }
+
+  // ── Live fine display for overdue rows ──────────────────────
+  const FINE_PER_DAY = 25.0;
+  function updateLiveFines() {
+    document.querySelectorAll('[id^="fine-live-"]').forEach(el => {
+      const dueStr = el.dataset.due;
+      if (!dueStr) return;
+      const overMs = Date.now() - new Date(dueStr).getTime();
+      if (overMs <= 0) { el.textContent = '(not overdue)'; return; }
+      const days = Math.max(1, Math.floor(overMs / 86400000) + 1);
+      const fine = (days * FINE_PER_DAY).toFixed(2);
+      el.textContent = `(live: ₹${fine})`;
+    });
+    // Also update late-days spans
+    document.querySelectorAll('[id^="late-days-"]').forEach(el => {
+      const dueStr = el.dataset.due;
+      if (!dueStr) return;
+      const overMs = Date.now() - new Date(dueStr).getTime();
+      if (overMs <= 0) { el.textContent = '0d'; return; }
+      const days = Math.max(1, Math.floor(overMs / 86400000) + 1);
+      el.textContent = `${days}d`;
+    });
+  }
+
+  updateCountdowns();
+  updateLiveFines();
+  setInterval(updateCountdowns, 1000);
+  setInterval(updateLiveFines, 5000);
+
+  // Auto-dismiss flashes
+  setTimeout(() => {
+    document.querySelectorAll('.flash').forEach(el => {
+      el.style.transition = 'opacity .4s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 400);
+    });
+  }, 4000);
+</script>
+</body>
+</html>

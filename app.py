@@ -905,6 +905,42 @@ def mark_all_notifications_read():
     return redirect(url_for("student_notifications"))
 
 
+@app.route("/student/notifications/delete/<int:notification_id>", methods=["POST"])
+@student_required
+def delete_notification(notification_id):
+    """Delete a read notification for the current student (only allowed if status='read')."""
+    student_id = session["student_id"]
+    notif = query(
+        "SELECT status FROM notifications WHERE notification_id = %s AND student_id = %s",
+        (notification_id, student_id), fetch="one"
+    )
+    if not notif:
+        flash("Notification not found.", "error")
+        return redirect(url_for("student_notifications"))
+    if notif["status"] != "read":
+        flash("Please mark the notification as read before deleting it.", "error")
+        return redirect(url_for("student_notifications"))
+    execute(
+        "DELETE FROM notifications WHERE notification_id = %s AND student_id = %s AND status = 'read'",
+        (notification_id, student_id)
+    )
+    flash("Notification removed.", "success")
+    return redirect(url_for("student_notifications"))
+
+
+@app.route("/student/notifications/delete-all-read", methods=["POST"])
+@student_required
+def delete_all_read_notifications():
+    """Delete all read notifications for the current student."""
+    student_id = session["student_id"]
+    execute(
+        "DELETE FROM notifications WHERE student_id = %s AND status = 'read'",
+        (student_id,)
+    )
+    flash("All read notifications have been cleared.", "success")
+    return redirect(url_for("student_notifications"))
+
+
 # ─────────────────────────────────────────────────────────────
 # ADMIN PANEL  (all routes session-protected)
 # ─────────────────────────────────────────────────────────────
@@ -1394,6 +1430,54 @@ def send_notification():
             flash("Invalid student recipient selected.", "error")
 
     return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/fines")
+@admin_required
+def admin_fines():
+    """Admin: Dedicated fine management – list all fines, filter by paid/unpaid, mark paid."""
+    auto_sync_status()
+    paid_filter = request.args.get("paid", "all")  # all | unpaid | paid
+
+    base_sql = """
+        SELECT r.rental_id, r.student_id, r.issued_at, r.due_at, r.returned_at,
+               r.status, r.fine_amount, r.fine_paid, r.fine_paid_at, r.late_days,
+               st.name AS student_name, st.roll_number, st.email,
+               b.model, b.type,
+               s.name AS station_name
+        FROM rentals r
+        JOIN students st ON r.student_id = st.student_id
+        JOIN bicycles  b  ON r.bicycle_id  = b.bicycle_id
+        JOIN stations  s  ON b.station_id  = s.station_id
+        WHERE r.fine_amount > 0
+    """
+    if paid_filter == "unpaid":
+        fines = query(base_sql + " AND r.fine_paid = 0 ORDER BY r.due_at ASC") or []
+    elif paid_filter == "paid":
+        fines = query(base_sql + " AND r.fine_paid = 1 ORDER BY r.fine_paid_at DESC") or []
+    else:
+        fines = query(base_sql + " ORDER BY r.fine_paid ASC, r.due_at ASC") or []
+
+    # Summary stats
+    summary = query("""
+        SELECT
+            COUNT(*) AS total_fines,
+            SUM(CASE WHEN fine_paid = 0 THEN fine_amount ELSE 0 END) AS total_unpaid,
+            SUM(CASE WHEN fine_paid = 1 THEN fine_amount ELSE 0 END) AS total_collected,
+            COUNT(CASE WHEN fine_paid = 0 THEN 1 END) AS unpaid_count,
+            COUNT(CASE WHEN fine_paid = 1 THEN 1 END) AS paid_count
+        FROM rentals
+        WHERE fine_amount > 0
+    """, fetch="one") or {}
+
+    now = datetime.now()
+    return render_template(
+        "admin_fines.html",
+        fines=fines,
+        paid_filter=paid_filter,
+        summary=summary,
+        now=now,
+    )
 
 
 @app.route("/admin/rentals")

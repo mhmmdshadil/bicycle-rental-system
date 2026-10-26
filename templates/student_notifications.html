@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My Rentals & Notifications – CampusCycle</title>
+  <title>My Rentals &amp; Notifications – CampusCycle</title>
   <meta name="description" content="View your bicycle rentals, reservation pickups, due dates, and campus messages." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,7 +20,6 @@
       display: flex;
       gap: 16px;
       align-items: flex-start;
-      justify-content: space-between;
     }
     .notif-card.unread {
       border-left: 4px solid var(--primary);
@@ -38,12 +37,28 @@
       background: #e0f2fe;
       color: #0369a1;
     }
-    .notif-icon-box.notif-type-alert { background: #fee2e2; color: #b91c1c; }
+    .notif-icon-box.notif-type-alert   { background: #fee2e2; color: #b91c1c; }
     .notif-icon-box.notif-type-warning { background: #fef3c7; color: #b45309; }
     .notif-icon-box.notif-type-success { background: #e8f5e9; color: #2e7d32; }
-    .notif-content {
-      flex: 1;
+    .notif-content { flex: 1; min-width: 0; }
+    .notif-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+    .fine-live-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(135deg,#fee2e2,#fef3c7);
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #b91c1c;
+      margin-top: 4px;
     }
+    .fine-live-box.fine-zero { background: #e8f5e9; border-color: #a7f3d0; color: #065f46; }
+    .fine-live-box.fine-paid { background: #e8f5e9; border-color: #a7f3d0; color: #065f46; }
+    /* timer-text color: suppressed for static rows */
+    .timer-static { color: var(--text-light); font-size: 0.72rem; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -63,7 +78,7 @@
         <span>🚲</span> <span>Browse</span>
       </a>
       <a href="{{ url_for('student_notifications') }}" class="nav-link active" id="nav-rentals">
-        <span>🔔</span> <span>My Rentals & Alerts</span>
+        <span>🔔</span> <span>My Rentals &amp; Alerts</span>
         {% if unread_count > 0 %}
           <span class="nav-badge">{{ unread_count }}</span>
         {% endif %}
@@ -101,13 +116,26 @@
   </div>
 </div>
 
+<!-- Delete Notification Confirm Modal -->
+<div class="modal-overlay" id="delete-notif-modal">
+  <div class="modal">
+    <div class="modal-icon">🗑️</div>
+    <h3>Remove Notification?</h3>
+    <p>This will permanently delete the selected notification from your list.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('delete-notif-modal')" id="keep-notif-btn">Keep It</button>
+      <button type="button" class="btn btn-danger" id="confirm-delete-notif-btn" onclick="submitDeleteNotifForm()">Delete</button>
+    </div>
+  </div>
+</div>
+
 <main>
   <div class="container section">
 
     <!-- Page Header -->
     <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
       <div>
-        <h1>My Rentals & Notifications 🔔</h1>
+        <h1>My Rentals &amp; Notifications 🔔</h1>
         <p>Rental circulation, pickup hold status, and campus communication for {{ student.name if student else session.student_name }}.</p>
       </div>
       <a href="{{ url_for('student_bikes') }}" class="btn btn-primary" id="reserve-another-btn">
@@ -119,24 +147,35 @@
     <div class="mb-24">
       <div class="flex-between mb-16">
         <div class="flex gap-8" style="align-items:center;">
-          <h2>Campus Notices & Alerts</h2>
+          <h2>Campus Notices &amp; Alerts</h2>
           {% if unread_count > 0 %}
             <span class="badge badge-rented">{{ unread_count }} New</span>
           {% endif %}
         </div>
-        {% if unread_count > 0 %}
-        <form method="post" action="{{ url_for('mark_all_notifications_read') }}" style="margin:0;">
-          <button type="submit" class="btn btn-ghost btn-sm">
-            Mark All as Read ✓
-          </button>
-        </form>
-        {% endif %}
+        <div class="flex gap-8" style="align-items:center; flex-wrap:wrap;">
+          {% if unread_count > 0 %}
+          <form method="post" action="{{ url_for('mark_all_notifications_read') }}" style="margin:0;">
+            <button type="submit" class="btn btn-ghost btn-sm" id="mark-all-read-btn">
+              Mark All as Read ✓
+            </button>
+          </form>
+          {% endif %}
+          {% set read_count = notifications | selectattr('status', 'equalto', 'read') | list | length %}
+          {% if read_count > 0 %}
+          <form method="post" action="{{ url_for('delete_all_read_notifications') }}" style="margin:0;"
+                onsubmit="return confirm('Clear all {{ read_count }} read notification(s)? This cannot be undone.');">
+            <button type="submit" class="btn btn-ghost btn-sm" id="clear-all-read-btn" style="color:var(--danger); border-color:var(--danger);">
+              🗑️ Clear Read ({{ read_count }})
+            </button>
+          </form>
+          {% endif %}
+        </div>
       </div>
 
       {% if notifications %}
       <div class="card" style="padding:16px 20px;">
         {% for n in notifications %}
-        <div class="notif-card {% if n.status == 'unread' %}unread{% endif %}">
+        <div class="notif-card {% if n.status == 'unread' %}unread{% endif %}" id="notif-card-{{ n.notification_id }}">
           <div class="notif-icon-box notif-type-{{ n.notification_type }}">
             {% if n.notification_type == 'alert' %}⚠️{% elif n.notification_type == 'warning' %}⏳{% elif n.notification_type == 'success' %}✅{% else %}📢{% endif %}
           </div>
@@ -152,16 +191,31 @@
               </span>
               {% if n.status == 'unread' %}
                 <span class="badge badge-rented" style="font-size:0.7rem; padding:2px 8px;">Unread</span>
+              {% else %}
+                <span style="font-size:0.7rem; color:var(--text-light);">Read ✓</span>
               {% endif %}
             </div>
           </div>
-          {% if n.status == 'unread' %}
-          <form method="post" action="{{ url_for('mark_notification_read', notification_id=n.notification_id) }}" style="margin:0; margin-left:12px;">
-            <button type="submit" class="btn btn-ghost btn-sm" style="padding:4px 8px; font-size:0.75rem;" title="Mark as read">
-              ✓
+          <div class="notif-actions">
+            {% if n.status == 'unread' %}
+            <form method="post" action="{{ url_for('mark_notification_read', notification_id=n.notification_id) }}" style="margin:0;">
+              <button type="submit" class="btn btn-ghost btn-sm" style="padding:4px 8px; font-size:0.75rem;" title="Mark as read" id="read-btn-{{ n.notification_id }}">
+                ✓ Read
+              </button>
+            </form>
+            {% else %}
+            <!-- Delete button: only shown for read notifications -->
+            <form method="post" action="{{ url_for('delete_notification', notification_id=n.notification_id) }}"
+                  id="delete-notif-form-{{ n.notification_id }}" style="display:none; margin:0;"></form>
+            <button type="button" class="btn btn-ghost btn-sm"
+                    style="padding:4px 8px; font-size:0.75rem; color:var(--danger);"
+                    title="Remove notification"
+                    id="del-notif-btn-{{ n.notification_id }}"
+                    onclick="openDeleteNotifModal('delete-notif-form-{{ n.notification_id }}')">
+              🗑️
             </button>
-          </form>
-          {% endif %}
+            {% endif %}
+          </div>
         </div>
         {% endfor %}
       </div>
@@ -208,9 +262,15 @@
                 <span class="{% if res.status in ['pending', 'confirmed'] %}text-primary{% else %}text-light{% endif %}" style="font-weight:600;">
                   {{ res.expires_at.strftime('%b %d, %Y %I:%M %p') if res.expires_at else '—' }}
                 </span>
-                <div class="countdown-text" data-target="{{ res.expires_at.strftime('%Y-%m-%dT%H:%M:%S') if res.expires_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Expires soon</div>
-                {% if res.status in ['pending', 'confirmed'] and res.expires_at and res.expires_at < now %}
-                  <br><small class="text-danger">Expired</small>
+                {% if res.status in ['pending', 'confirmed'] %}
+                  <!-- Live countdown only for active holds -->
+                  <div class="countdown-text" data-target="{{ res.expires_at.strftime('%Y-%m-%dT%H:%M:%S') if res.expires_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Loading…</div>
+                {% elif res.status == 'cancelled' %}
+                  <div class="timer-static">Cancelled</div>
+                {% elif res.status == 'completed' %}
+                  <div class="timer-static">Picked Up ✓</div>
+                {% else %}
+                  <div class="timer-static">Expired</div>
                 {% endif %}
               </td>
               <td>
@@ -253,7 +313,7 @@
     <!-- ── 3. Active & Past Rentals Section ───────────────────── -->
     <div class="mb-24">
       <div class="flex-between mb-16">
-        <h2>Active & Past Trips ({{ rentals|length }})</h2>
+        <h2>Active &amp; Past Trips ({{ rentals|length }})</h2>
       </div>
 
       {% if rentals %}
@@ -267,7 +327,7 @@
               <th>Issued At</th>
               <th>Return Deadline</th>
               <th>Returned At</th>
-              <th>Status</th>
+              <th>Status &amp; Fine</th>
               <th>Issued By</th>
             </tr>
           </thead>
@@ -285,20 +345,46 @@
                 <div style="font-weight:600;" class="{% if r.status == 'overdue' %}text-danger{% endif %}">
                   {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                 </div>
-                <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Due soon</div>
-                {% if r.status == 'active' and r.due_at and r.due_at < now %}
-                  <small style="color:var(--danger); font-weight:700;">⚠️ Overdue now!</small>
-                {% elif r.status == 'overdue' %}
-                  <small class="text-danger" style="font-weight:700;">⚠️ Overdue!</small>
+                {% if r.status in ['active', 'overdue'] %}
+                  <!-- Live countdown only for ongoing rentals -->
+                  <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Loading…</div>
+                {% elif r.status == 'returned' %}
+                  <div class="timer-static">Returned ✓</div>
+                {% else %}
+                  <div class="timer-static">—</div>
                 {% endif %}
               </td>
               <td>{{ r.returned_at.strftime('%b %d, %Y %I:%M %p') if r.returned_at else '—' }}</td>
               <td>
                 <span class="badge badge-{{ r.status }}">{{ r.status | capitalize }}</span>
-                {% if r.fine_amount and r.fine_amount > 0 %}
-                  <div style="margin-top:6px; font-size:0.75rem; color:var(--text-light);">
-                    Fine: ₹{{ '%.2f' % r.fine_amount }}{% if r.fine_paid %} • Paid{% else %} • Unpaid{% endif %}
-                  </div>
+                <!-- Fine display: always shown; live counter for active overdue, static for returned -->
+                {% if r.status in ['active', 'overdue'] %}
+                  {% if r.fine_paid == 1 %}
+                    <div class="fine-live-box fine-paid" style="margin-top:5px;">
+                      ✅ Fine Paid ₹{{ '%.2f' % r.fine_amount }}
+                    </div>
+                  {% elif r.due_at and r.due_at <= now %}
+                    <!-- Overdue: live fine counter -->
+                    <div class="fine-live-box"
+                         id="fine-box-{{ r.rental_id }}"
+                         data-due="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') }}"
+                         style="margin-top:5px;">
+                      ⏱ Fine: ₹<span class="fine-amount-live" id="fine-amt-{{ r.rental_id }}">{{ '%.2f' % r.fine_amount }}</span>
+                    </div>
+                  {% else %}
+                    <!-- Not yet overdue: show ₹0 -->
+                    <div class="fine-live-box fine-zero" style="margin-top:5px;">
+                      ✓ Fine: ₹0.00 (not due yet)
+                    </div>
+                  {% endif %}
+                {% elif r.status == 'returned' %}
+                  {% if r.fine_amount and r.fine_amount > 0 %}
+                    <div class="fine-live-box {% if r.fine_paid %}fine-paid{% endif %}" style="margin-top:5px;">
+                      {% if r.fine_paid %}✅ Fine Paid ₹{{ '%.2f' % r.fine_amount }}{% else %}⚠ Fine ₹{{ '%.2f' % r.fine_amount }} (Pending){% endif %}
+                    </div>
+                  {% else %}
+                    <div class="fine-live-box fine-zero" style="margin-top:5px;">✓ No Fine</div>
+                  {% endif %}
                 {% endif %}
               </td>
               <td>{{ r.issued_by or 'Staff' }}</td>
@@ -320,6 +406,7 @@
 </main>
 
 <script>
+  // ─── Cancel Reservation Modal ────────────────────────────────
   let pendingCancelFormId = null;
 
   function openCancelModal(resId, model) {
@@ -329,9 +416,24 @@
     document.getElementById('cancel-modal').classList.add('active');
   }
 
+  // ─── Delete Notification Modal ───────────────────────────────
+  let pendingDeleteNotifFormId = null;
+
+  function openDeleteNotifModal(formId) {
+    pendingDeleteNotifFormId = formId;
+    document.getElementById('delete-notif-modal').classList.add('active');
+  }
+
+  function submitDeleteNotifForm() {
+    if (pendingDeleteNotifFormId) {
+      document.getElementById(pendingDeleteNotifFormId).submit();
+    }
+  }
+
   function closeModal(id) {
     document.getElementById(id).classList.remove('active');
     pendingCancelFormId = null;
+    pendingDeleteNotifFormId = null;
   }
 
   function submitCancelForm() {
@@ -343,37 +445,62 @@
   document.getElementById('cancel-modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal('cancel-modal');
   });
+  document.getElementById('delete-notif-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal('delete-notif-modal');
+  });
 
+  // ─── Countdown Timers (only for active rows) ─────────────────
   function updateCountdowns() {
-    const countdownEls = document.querySelectorAll('.countdown-text');
-    countdownEls.forEach(el => {
+    document.querySelectorAll('.countdown-text').forEach(el => {
       const target = el.dataset.target;
-      if (!target) {
-        el.textContent = '—';
-        return;
-      }
-      const targetTime = new Date(target).getTime();
-      const diff = targetTime - Date.now();
+      if (!target) { el.textContent = '—'; return; }
+      const diff = new Date(target).getTime() - Date.now();
       if (diff <= 0) {
-        el.textContent = 'Expired';
+        el.textContent = 'Expired / Overdue';
         el.style.color = 'var(--danger)';
         return;
       }
-      const totalSeconds = Math.floor(diff / 1000);
-      const days = Math.floor(totalSeconds / 86400);
-      const hours = Math.floor((totalSeconds % 86400) / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const seconds = totalSeconds % 60;
-      const label = days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m ${seconds}s`;
+      const s = Math.floor(diff / 1000);
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      const label = d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${sec}s`;
       el.textContent = `Due in ${label}`;
-      if (hours < 6) {
-        el.style.color = 'var(--danger)';
+      el.style.color = (h < 6 && d === 0) ? 'var(--danger)' : 'var(--text-light)';
+    });
+  }
+
+  // ─── Live Fine Counter (₹25 / day, updates per second) ───────
+  const FINE_PER_DAY = 25.0;
+
+  function updateLiveFines() {
+    document.querySelectorAll('[data-due]').forEach(box => {
+      const dueStr = box.dataset.due;
+      if (!dueStr) return;
+      const dueMs = new Date(dueStr).getTime();
+      const nowMs = Date.now();
+      if (nowMs <= dueMs) {
+        // Not yet overdue — show 0
+        const span = box.querySelector('.fine-amount-live');
+        if (span) span.textContent = '0.00';
+        box.classList.add('fine-zero');
+        box.classList.remove('fine-live-box');
+        return;
       }
+      const diffSec = (nowMs - dueMs) / 1000;
+      // Days overdue: at least 1 day charged from the moment it's overdue
+      const overdueDays = Math.max(1, Math.floor(diffSec / 86400) + 1);
+      const fine = (overdueDays * FINE_PER_DAY).toFixed(2);
+      const span = box.querySelector('.fine-amount-live');
+      if (span) span.textContent = fine;
     });
   }
 
   updateCountdowns();
+  updateLiveFines();
   setInterval(updateCountdowns, 1000);
+  setInterval(updateLiveFines, 1000);
 
   // Auto-dismiss flashes
   setTimeout(() => {

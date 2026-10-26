@@ -171,14 +171,29 @@
                   <span class="{% if r.status in ['pending','confirmed'] %}text-primary{% else %}text-light{% endif %}" style="font-weight:600;">
                     {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                   </span>
-                  <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Expires soon</div>
+                  {% if r.status in ['pending', 'confirmed'] %}
+                    <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Loading…</div>
+                  {% elif r.status == 'cancelled' %}
+                    <div style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Cancelled</div>
+                  {% elif r.status == 'completed' %}
+                    <div style="font-size:0.72rem; color:var(--success); margin-top:2px;">Picked Up ✓</div>
+                  {% else %}
+                    <div style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">—</div>
+                  {% endif %}
                 {% else %}
                   <span style="font-weight:600;" class="{% if r.status == 'overdue' %}text-danger{% endif %}">
                     {{ r.due_at.strftime('%b %d, %Y %I:%M %p') if r.due_at else '—' }}
                   </span>
-                  <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Due soon</div>
+                  {% if r.status in ['active', 'overdue'] %}
+                    <div class="countdown-text" data-target="{{ r.due_at.strftime('%Y-%m-%dT%H:%M:%S') if r.due_at else '' }}" style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">Loading…</div>
+                  {% elif r.status == 'returned' %}
+                    <div style="font-size:0.72rem; color:var(--success); margin-top:2px;">Returned ✓</div>
+                  {% else %}
+                    <div style="font-size:0.72rem; color:var(--text-light); margin-top:2px;">—</div>
+                  {% endif %}
                 {% endif %}
               </td>
+
               <td>
                 <span class="badge badge-{{ r.status }}">
                   {{ r.status | capitalize }}

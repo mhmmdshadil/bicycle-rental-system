@@ -50,6 +50,9 @@
           <span class="nav-badge">{{ overdue_rentals }}</span>
         {% endif %}
       </a>
+      <a href="{{ url_for('admin_fines') }}" class="nav-link" id="nav-admin-fines">
+        <span>💳</span> <span>Fines</span>
+      </a>
       <div class="nav-user" style="background:#2b3a4a1a; border-color:#2b3a4a33; color:#2b3a4a;">
         <div class="avatar" style="background:#2b3a4a;">{{ session.staff_name[0].upper() if session.staff_name else 'A' }}</div>
         <span>{{ session.staff_name.split()[0] if session.staff_name else 'Admin' }}</span>
