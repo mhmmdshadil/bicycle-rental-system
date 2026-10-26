@@ -199,7 +199,12 @@
                   {{ r.status | capitalize }}
                 </span>
               </td>
-              <td>{{ r.issued_by or 'Staff' }}</td>
+              <td>
+                {{ r.issued_by or 'Staff' }}
+                {% if r.staff_id %}
+                  <div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">Staff ID: #{{ r.staff_id }}</div>
+                {% endif %}
+              </td>
               <td>
                 {% if r.record_type == 'reservation' %}
                   {% if r.status in ['pending', 'confirmed'] %}

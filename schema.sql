@@ -66,13 +66,19 @@ CREATE TABLE IF NOT EXISTS rentals (
     rental_id    INT AUTO_INCREMENT PRIMARY KEY,
     student_id   INT          NOT NULL,
     bicycle_id   INT          NOT NULL,
+    staff_id     INT          DEFAULT NULL,
     issued_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     due_at       DATETIME     NOT NULL,
     returned_at  DATETIME     DEFAULT NULL,
     status       ENUM('active','returned','overdue') NOT NULL DEFAULT 'active',
     issued_by    VARCHAR(100) DEFAULT 'Staff',
+    fine_amount  DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    fine_paid    TINYINT(1)   NOT NULL DEFAULT 0,
+    fine_paid_at DATETIME     DEFAULT NULL,
+    late_days    INT          NOT NULL DEFAULT 0,
     FOREIGN KEY (student_id)  REFERENCES students(student_id)  ON DELETE CASCADE,
-    FOREIGN KEY (bicycle_id)  REFERENCES bicycles(bicycle_id)  ON DELETE CASCADE
+    FOREIGN KEY (bicycle_id)  REFERENCES bicycles(bicycle_id)  ON DELETE CASCADE,
+    FOREIGN KEY (staff_id)    REFERENCES staff(staff_id)       ON DELETE SET NULL
 );
 
 -- ------------------------------------------------------------
@@ -116,6 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_bicycles_status ON bicycles (status);
 CREATE INDEX IF NOT EXISTS idx_bicycles_station_status ON bicycles (station_id, status);
 CREATE INDEX IF NOT EXISTS idx_rentals_status_due ON rentals (status, due_at);
 CREATE INDEX IF NOT EXISTS idx_rentals_student_status ON rentals (student_id, status);
+CREATE INDEX IF NOT EXISTS idx_rentals_staff_id ON rentals (staff_id);
 CREATE INDEX IF NOT EXISTS idx_reservations_status_expires ON reservations (status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_reservations_student_status ON reservations (student_id, status);
 CREATE INDEX IF NOT EXISTS idx_notifications_student_status ON notifications (student_id, status);

@@ -58,7 +58,7 @@ The relational MySQL schema is defined in [schema.sql](file:///c:/Users/Admin/De
 - **`stations`**: Docking stations across campus (`station_id`, `name`, `location`, `capacity`).
 - **`bicycles`**: Bikes docked at stations (`bicycle_id`, `station_id`, `model`, `type`, `status`).
 - **`students`**: Student records (`student_id`, `name`, `email`, `phone`, `roll_number`).
-- **`rentals`**: Checkouts and check-ins (`rental_id`, `student_id`, `bicycle_id`, `issued_at`, `due_at`, `returned_at`, `status`, `issued_by`).
+- **`rentals`**: Checkouts and check-ins (`rental_id`, `student_id`, `bicycle_id`, `staff_id`, `issued_at`, `due_at`, `returned_at`, `status`, `issued_by`, fines).
 - **`reservations`**: Pre-pickup hold requests (`reservation_id`, `student_id`, `bicycle_id`, `station_id`, `reserved_at`, `expires_at`, `status`).
 
 Includes pre-seeded realistic sample data for 5 stations, 16 bicycles, 5 students, and sample rental records.

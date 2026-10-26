@@ -336,6 +336,7 @@ def ensure_indexes():
         ("idx_bicycles_station_status", "bicycles", "(station_id, status)"),
         ("idx_rentals_status_due", "rentals", "(status, due_at)"),
         ("idx_rentals_student_status", "rentals", "(student_id, status)"),
+        ("idx_rentals_staff_id", "rentals", "(staff_id)"),
         ("idx_reservations_status_expires", "reservations", "(status, expires_at)"),
         ("idx_reservations_student_status", "reservations", "(student_id, status)"),
         ("idx_notifications_student_status", "notifications", "(student_id, status)"),
@@ -348,7 +349,7 @@ def ensure_indexes():
 
 
 def ensure_database_columns():
-    """Ensure fine-tracking columns exist for overdue rentals in MySQL-compatible syntax."""
+    """Ensure fine-tracking and staff columns exist for rentals in MySQL-compatible syntax."""
     existing = query(
         "SHOW COLUMNS FROM rentals LIKE 'fine_amount'",
         fetch="one",
@@ -377,6 +378,19 @@ def ensure_database_columns():
     if not existing:
         execute("ALTER TABLE rentals ADD COLUMN late_days INT NOT NULL DEFAULT 0")
 
+    existing = query(
+        "SHOW COLUMNS FROM rentals LIKE 'staff_id'",
+        fetch="one",
+    )
+    if not existing:
+        try:
+            execute("ALTER TABLE rentals ADD COLUMN staff_id INT NULL AFTER bicycle_id")
+        except Exception:
+            pass
+        try:
+            execute("ALTER TABLE rentals ADD CONSTRAINT fk_rentals_staff FOREIGN KEY (staff_id) REFERENCES staff(staff_id) ON DELETE SET NULL")
+        except Exception:
+            pass
 
 ensure_database_columns()
 
@@ -1497,7 +1511,9 @@ def admin_rentals():
     rentals_base = """
         SELECT r.rental_id AS record_id, r.rental_id, NULL AS reservation_id,
                'rental' AS record_type,
-               r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
+               r.issued_at, r.due_at, r.returned_at, r.status,
+               r.staff_id,
+               COALESCE(sf.name, r.issued_by, 'Staff') AS issued_by,
                r.fine_amount, r.fine_paid, r.late_days,
                st.name AS student_name, st.roll_number, st.email,
                b.bicycle_id, b.model, b.type,
@@ -1506,12 +1522,15 @@ def admin_rentals():
         JOIN students st ON r.student_id = st.student_id
         JOIN bicycles b  ON r.bicycle_id  = b.bicycle_id
         JOIN stations s  ON b.station_id  = s.station_id
+        LEFT JOIN staff sf ON r.staff_id  = sf.staff_id
     """
     res_base = """
         SELECT res.reservation_id AS record_id, NULL AS rental_id, res.reservation_id,
                'reservation' AS record_type,
                res.reserved_at AS issued_at, res.expires_at AS due_at,
-               NULL AS returned_at, res.status, 'Online Reservation' AS issued_by,
+               NULL AS returned_at, res.status,
+               NULL AS staff_id,
+               'Online Reservation' AS issued_by,
                0.00 AS fine_amount, 0 AS fine_paid, 0 AS late_days,
                st.name AS student_name, st.roll_number, st.email,
                b.bicycle_id, b.model, b.type,
@@ -1643,11 +1662,13 @@ def issue_reservation(reservation_id):
             return redirect(url_for("admin_rentals"))
 
         due_at = datetime.now() + timedelta(days=2)
+        staff_id = session.get("staff_id")
+        staff_name = session.get("staff_name", "Staff")
         execute("UPDATE reservations SET status = 'completed' WHERE reservation_id = %s", (reservation_id,))
         new_rental_id = execute(
-            """INSERT INTO rentals (student_id, bicycle_id, issued_at, due_at, status, issued_by)
-               VALUES (%s, %s, NOW(), %s, 'active', %s)""",
-            (res["student_id"], res["bicycle_id"], due_at, session.get("staff_name", "Staff"))
+            """INSERT INTO rentals (student_id, bicycle_id, staff_id, issued_at, due_at, status, issued_by)
+               VALUES (%s, %s, %s, NOW(), %s, 'active', %s)""",
+            (res["student_id"], res["bicycle_id"], staff_id, due_at, staff_name)
         )
         execute("UPDATE bicycles SET status = 'rented' WHERE bicycle_id = %s", (res["bicycle_id"],))
         create_notification(
