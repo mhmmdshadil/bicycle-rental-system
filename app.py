@@ -665,7 +665,8 @@ def student_bikes():
     """Browse Bicycles & Stations – real-time availability."""
     auto_sync_status()
     student_id  = session["student_id"]
-    type_filter = request.args.get("type", "all")
+    type_filter    = request.args.get("type", "all")
+    station_filter = request.args.get("station", "all")
 
     if type_filter != "all":
         bikes = query(
@@ -697,7 +698,13 @@ def student_bikes():
            ORDER BY s.name"""
     )
 
-    return render_template("student_bikes.html", bikes=bikes, stations=stations, type_filter=type_filter)
+    return render_template(
+        "student_bikes.html",
+        bikes=bikes,
+        stations=stations,
+        type_filter=type_filter,
+        station_filter=station_filter,
+    )
 
 
 @app.route("/student/reserve/<int:bicycle_id>", methods=["POST"])

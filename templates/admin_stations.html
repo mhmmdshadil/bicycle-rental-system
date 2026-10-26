@@ -387,8 +387,21 @@
           <h2>Bicycle Fleet Inventory ({{ bikes|length }})</h2>
           <p style="font-size: 0.88rem;">Manage bicycle assets, reassign station homes, and change operational status.</p>
         </div>
-        <div class="flex gap-12" style="align-items:center;">
-          <input type="text" id="bike-search" class="form-input search-bar" placeholder="🔍 Search by ID, model, station..." onkeyup="filterBikeTable()" />
+        <div class="flex gap-12" style="align-items:center; flex-wrap:wrap;">
+          <select id="admin-station-filter" class="form-input" style="max-width:180px;" onchange="filterBikeTable()">
+            <option value="all">📍 All Stations</option>
+            {% for st in stations %}
+              <option value="{{ st.station_id }}">{{ st.name }}</option>
+            {% endfor %}
+          </select>
+          <select id="admin-status-filter" class="form-input" style="max-width:150px;" onchange="filterBikeTable()">
+            <option value="all">⚡ All Statuses</option>
+            <option value="available">Available</option>
+            <option value="rented">Rented</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="reserved">Reserved</option>
+          </select>
+          <input type="text" id="bike-search" class="form-input search-bar" placeholder="🔍 Search ID, model..." onkeyup="filterBikeTable()" />
           <button type="button" class="btn btn-dark btn-sm" onclick="openModal('add-bicycle-modal')">
             + Add Bike
           </button>
@@ -412,7 +425,7 @@
           </thead>
           <tbody>
             {% for b in bikes %}
-            <tr>
+            <tr data-station-id="{{ b.station_id }}" data-status="{{ b.status }}">
               <td><strong>#{{ b.display_bicycle_id if b.display_bicycle_id is defined else b.bicycle_id }}</strong></td>
               <td><strong>{{ b.model }}</strong></td>
               <td><span class="badge badge-{{ b.type }}">{{ b.type | capitalize }}</span></td>
@@ -547,13 +560,23 @@
     }
   });
 
-  // Client-side search filter for bikes table
+  // Client-side search & dropdown filters for bikes table
   function filterBikeTable() {
-    const input = document.getElementById('bike-search').value.toLowerCase();
+    const input = document.getElementById('bike-search').value.toLowerCase().trim();
+    const stationFilter = document.getElementById('admin-station-filter') ? document.getElementById('admin-station-filter').value : 'all';
+    const statusFilter = document.getElementById('admin-status-filter') ? document.getElementById('admin-status-filter').value : 'all';
     const rows = document.querySelectorAll('#bikes-table tbody tr');
+
     rows.forEach(row => {
       const text = row.innerText.toLowerCase();
-      row.style.display = text.includes(input) ? '' : 'none';
+      const rowStation = row.getAttribute('data-station-id');
+      const rowStatus = row.getAttribute('data-status');
+
+      const matchesSearch = !input || text.includes(input);
+      const matchesStation = (stationFilter === 'all' || rowStation === stationFilter);
+      const matchesStatus = (statusFilter === 'all' || rowStatus === statusFilter);
+
+      row.style.display = (matchesSearch && matchesStation && matchesStatus) ? '' : 'none';
     });
   }
 

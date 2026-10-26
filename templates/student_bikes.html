@@ -10,8 +10,126 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
   <style>
-    .bikes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
-    .station-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
+    .bikes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 18px;
+    }
+    .station-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--primary);
+      flex-shrink: 0;
+    }
+
+    /* Clickable station summary cards */
+    .station-card {
+      cursor: pointer;
+      transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 2px solid transparent;
+      user-select: none;
+      position: relative;
+    }
+    .station-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+      border-color: rgba(43, 140, 90, 0.35);
+    }
+    .station-card.active {
+      border-color: var(--primary);
+      background: #f0fdf4;
+      box-shadow: 0 6px 20px rgba(43, 140, 90, 0.16);
+    }
+
+    /* Station Filters Container */
+    .station-filter-section {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+    }
+    .station-filter-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .station-filter-title {
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .station-pills-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .station-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 15px;
+      border-radius: 30px;
+      border: 1px solid var(--border);
+      background: var(--bg-light, #f8f9fa);
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      user-select: none;
+    }
+    .station-pill:hover {
+      background: #eef2f6;
+      border-color: #cbd5e1;
+      transform: translateY(-1px);
+    }
+    .station-pill.active {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+      box-shadow: 0 2px 8px rgba(43, 140, 90, 0.3);
+    }
+    .pill-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 10px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      background: rgba(0, 0, 0, 0.08);
+      color: var(--text);
+    }
+    .station-pill.active .pill-badge {
+      background: rgba(255, 255, 255, 0.28);
+      color: #ffffff;
+    }
+    .station-search-box {
+      padding: 7px 13px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+      min-width: 220px;
+      background: #ffffff;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .station-search-box:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(43, 140, 90, 0.15);
+    }
   </style>
 </head>
 <body>
@@ -73,25 +191,29 @@
     <div class="page-header flex-between" style="flex-wrap:wrap; gap:16px;">
       <div>
         <h1>Browse Bikes 🗺️</h1>
-        <p>Real-time availability across all campus stations. Tap a bike to reserve it.</p>
+        <p>Real-time availability across all campus stations. Click any station or type to filter.</p>
       </div>
       <!-- Type Filter Tabs -->
       <div class="filter-tabs">
-        <a href="{{ url_for('student_bikes', type='all') }}"
+        <a href="{{ url_for('student_bikes', type='all', station=station_filter) }}"
            class="filter-tab {% if type_filter == 'all' %}active{% endif %}" id="filter-all">All Types</a>
-        <a href="{{ url_for('student_bikes', type='standard') }}"
+        <a href="{{ url_for('student_bikes', type='standard', station=station_filter) }}"
            class="filter-tab {% if type_filter == 'standard' %}active{% endif %}" id="filter-standard">🚲 Standard</a>
-        <a href="{{ url_for('student_bikes', type='electric') }}"
+        <a href="{{ url_for('student_bikes', type='electric', station=station_filter) }}"
            class="filter-tab {% if type_filter == 'electric' %}active{% endif %}" id="filter-electric">⚡ Electric</a>
-        <a href="{{ url_for('student_bikes', type='mountain') }}"
+        <a href="{{ url_for('student_bikes', type='mountain', station=station_filter) }}"
            class="filter-tab {% if type_filter == 'mountain' %}active{% endif %}" id="filter-mountain">🏔 Mountain</a>
       </div>
     </div>
 
-    <!-- Station Summary Row -->
+    <!-- Station Summary Row (Clickable Cards) -->
     <div class="grid-3 mb-24">
       {% for st in stations %}
-      <div class="card station-card">
+      <div class="card station-card {% if station_filter == (st.station_id | string) %}active{% endif %}"
+           id="station-card-{{ st.station_id }}"
+           data-station-id="{{ st.station_id }}"
+           onclick="selectStation('{{ st.station_id }}')"
+           title="Click to view bicycles at {{ st.name }}">
         <div class="flex-between mb-8">
           <h3 style="font-size:.95rem;">{{ st.name }}</h3>
           <span class="badge badge-available">{{ st.available }} free</span>
@@ -101,20 +223,74 @@
           {% set pct = (st.available / st.capacity * 100) | int if st.capacity > 0 else 0 %}
           <div class="progress-fill" {{ ('style="width: ' ~ pct ~ '%;"') | safe }}></div>
         </div>
-        <small class="mt-8" style="display:block; color:var(--text-light);">{{ st.available }}/{{ st.capacity }} available</small>
+        <div class="flex-between mt-8" style="font-size:0.8rem; color:var(--text-light);">
+          <span>{{ st.available }}/{{ st.capacity }} available</span>
+          <span class="card-select-label" style="font-weight:600; color:var(--primary);">
+            {% if station_filter == (st.station_id | string) %}✓ Filter Active{% else %}Filter →{% endif %}
+          </span>
+        </div>
       </div>
       {% endfor %}
     </div>
 
-    <!-- Available Bikes Grid -->
-    <div class="flex-between mb-16">
-      <h2>Available Bikes ({{ bikes|length }})</h2>
+    <!-- ── Available Bicycle Section & Station Filters ─────────── -->
+    <div class="station-filter-section">
+      <div class="station-filter-header">
+        <div class="station-filter-title">
+          <span>🚉</span> Filter Bicycles by Station:
+        </div>
+        <input type="text"
+               id="bike-search-input"
+               class="station-search-box"
+               placeholder="🔍 Search model or bike ID..."
+               oninput="filterBikes()" />
+      </div>
+
+      <div class="station-pills-row">
+        <!-- All Stations Pill -->
+        <button type="button"
+                class="station-pill {% if station_filter == 'all' %}active{% endif %}"
+                id="pill-all"
+                onclick="selectStation('all')">
+          <span>🌐 All Stations</span>
+          <span class="pill-badge" id="badge-all">{{ stations|sum(attribute='available') }}</span>
+        </button>
+
+        <!-- Each Campus Station Pill -->
+        {% for st in stations %}
+        <button type="button"
+                class="station-pill {% if station_filter == (st.station_id | string) %}active{% endif %}"
+                id="pill-{{ st.station_id }}"
+                data-station-id="{{ st.station_id }}"
+                data-station-name="{{ st.name }}"
+                onclick="selectStation('{{ st.station_id }}')">
+          <span>📍 {{ st.name }}</span>
+          <span class="pill-badge">{{ st.available }}</span>
+        </button>
+        {% endfor %}
+      </div>
     </div>
 
+    <!-- Section Heading & Live Counter -->
+    <div class="flex-between mb-16" style="align-items:center; flex-wrap:wrap; gap:8px;">
+      <h2>
+        Available Bikes (<span id="bikes-counter">{{ bikes|length }}</span>)
+      </h2>
+      <div id="active-filter-indicator" style="font-size:0.88rem; color:var(--text-light);">
+        <!-- Populated dynamically via JS -->
+      </div>
+    </div>
+
+    <!-- Available Bikes Grid -->
     {% if bikes %}
-    <div class="bikes-grid">
+    <div class="bikes-grid" id="bikes-grid">
       {% for bike in bikes %}
-      <div class="bike-card">
+      <div class="bike-card"
+           data-station-id="{{ bike.station_id }}"
+           data-station-name="{{ bike.station_name }}"
+           data-type="{{ bike.type }}"
+           data-model="{{ bike.model | lower }}"
+           data-bike-id="{{ bike.bicycle_id }}">
         <div class="flex gap-12" style="align-items:center;">
           <div class="bike-icon">
             {% if bike.type == 'electric' %}⚡
@@ -127,14 +303,15 @@
             <span class="badge badge-{{ bike.type }}">{{ bike.type | capitalize }}</span>
           </div>
         </div>
-        <div style="font-size:.85rem; color:var(--text-light);">📍 {{ bike.station_name }}</div>
+        <div style="font-size:.85rem; color:var(--text-light); margin-top:8px;">📍 {{ bike.station_name }}</div>
         <div style="font-size:.8rem; color:var(--text-light);">Bike #{{ bike.bicycle_id }}</div>
+        
         <!-- Reserve Form (hidden, triggered by modal) -->
         <form method="post" action="{{ url_for('reserve_bicycle', bicycle_id=bike.bicycle_id) }}"
               class="reserve-form" id="reserve-form-{{ bike.bicycle_id }}" style="display:none;">
           <input type="hidden" name="station_id" value="{{ bike.station_id }}">
         </form>
-        <button type="button" class="btn btn-primary btn-sm" style="width:100%; justify-content:center; margin-top:4px;"
+        <button type="button" class="btn btn-primary btn-sm" style="width:100%; justify-content:center; margin-top:10px;"
                 id="reserve-btn-{{ bike.bicycle_id }}"
                 data-bike-id="{{ bike.bicycle_id }}"
                 data-model="{{ bike.model }}"
@@ -144,6 +321,23 @@
         </button>
       </div>
       {% endfor %}
+    </div>
+
+    <!-- Dynamic Empty State (shown when filters match 0 bikes) -->
+    <div class="card empty-state" id="dynamic-empty-state" style="display:none; padding:40px 20px; text-align:center;">
+      <div class="empty-icon" style="font-size:3rem; margin-bottom:12px;">🚲</div>
+      <h3 id="empty-state-title">No matching bicycles found</h3>
+      <p class="mt-8" id="empty-state-msg" style="color:var(--text-light);">
+        There are currently no bicycles available matching your selected station or search.
+      </p>
+      <div class="mt-16 flex gap-12" style="justify-content:center;">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="selectStation('all')">
+          View All Stations
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="resetAllFilters()">
+          Clear All Filters
+        </button>
+      </div>
     </div>
 
     {% else %}
@@ -159,7 +353,110 @@
 
 <script>
   let pendingFormId = null;
+  let currentStation = "{{ station_filter }}";
+  const currentType = "{{ type_filter }}";
 
+  function selectStation(stationId) {
+    currentStation = stationId;
+
+    // 1. Update pills active state
+    document.querySelectorAll('.station-pill').forEach(pill => pill.classList.remove('active'));
+    const activePill = document.getElementById('pill-' + stationId);
+    if (activePill) activePill.classList.add('active');
+
+    // 2. Update station cards active state & labels
+    document.querySelectorAll('.station-card').forEach(card => {
+      const cardStId = card.getAttribute('data-station-id');
+      const label = card.querySelector('.card-select-label');
+      if (stationId !== 'all' && cardStId === stationId) {
+        card.classList.add('active');
+        if (label) label.textContent = '✓ Filter Active';
+      } else {
+        card.classList.remove('active');
+        if (label) label.textContent = 'Filter →';
+      }
+    });
+
+    // 3. Filter bikes instantly
+    filterBikes();
+
+    // 4. Update URL without page reload
+    const url = new URL(window.location);
+    if (stationId === 'all') {
+      url.searchParams.delete('station');
+    } else {
+      url.searchParams.set('station', stationId);
+    }
+    window.history.replaceState({}, '', url);
+  }
+
+  function filterBikes() {
+    const searchVal = (document.getElementById('bike-search-input')?.value || '').toLowerCase().trim();
+    const cards = document.querySelectorAll('.bike-card');
+    let visibleCount = 0;
+
+    cards.forEach(card => {
+      const cardStation = card.getAttribute('data-station-id');
+      const cardType = card.getAttribute('data-type');
+      const cardModel = card.getAttribute('data-model') || '';
+      const cardId = card.getAttribute('data-bike-id') || '';
+
+      const matchesStation = (currentStation === 'all' || cardStation === currentStation);
+      const matchesType = (currentType === 'all' || cardType === currentType);
+      const matchesSearch = !searchVal || cardModel.includes(searchVal) || ('#' + cardId).includes(searchVal) || cardId === searchVal;
+
+      if (matchesStation && matchesType && matchesSearch) {
+        card.style.display = '';
+        visibleCount++;
+      } else {
+        card.style.display = 'none';
+      }
+    });
+
+    // Update live counter badge
+    const counterEl = document.getElementById('bikes-counter');
+    if (counterEl) counterEl.textContent = visibleCount;
+
+    // Toggle dynamic empty state
+    const emptyState = document.getElementById('dynamic-empty-state');
+    const bikesGrid = document.getElementById('bikes-grid');
+    if (emptyState && bikesGrid) {
+      if (visibleCount === 0) {
+        emptyState.style.display = 'block';
+        bikesGrid.style.display = 'none';
+      } else {
+        emptyState.style.display = 'none';
+        bikesGrid.style.display = 'grid';
+      }
+    }
+
+    // Update active filter indicator label
+    const labelEl = document.getElementById('active-filter-indicator');
+    if (labelEl) {
+      if (currentStation === 'all' && !searchVal) {
+        labelEl.innerHTML = '';
+      } else {
+        let labelText = '';
+        if (currentStation !== 'all') {
+          const pill = document.getElementById('pill-' + currentStation);
+          const stName = pill ? pill.getAttribute('data-station-name') : 'Station';
+          labelText += `Filtered to: <strong>${stName}</strong> `;
+        }
+        if (searchVal) {
+          labelText += `matching "<em>${searchVal}</em>" `;
+        }
+        labelEl.innerHTML = `${labelText} <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px; padding:3px 8px; font-size:0.75rem;" onclick="resetAllFilters()">✕ Clear</button>`;
+      }
+    }
+  }
+
+  function resetAllFilters() {
+    const searchInput = document.getElementById('bike-search-input');
+    if (searchInput) searchInput.value = '';
+    selectStation('all');
+  }
+
+  // Reservation Modal
   function openReserveModal(bikeId, model, station) {
     pendingFormId = 'reserve-form-' + bikeId;
     document.getElementById('reserve-modal-msg').textContent =
@@ -181,6 +478,15 @@
   // Close modal on overlay click
   document.getElementById('reserve-modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal('reserve-modal');
+  });
+
+  // Initialize filtering on page load if station was passed
+  document.addEventListener('DOMContentLoaded', function() {
+    if (currentStation && currentStation !== 'all') {
+      selectStation(currentStation);
+    } else {
+      filterBikes();
+    }
   });
 
   // Auto-dismiss flashes
