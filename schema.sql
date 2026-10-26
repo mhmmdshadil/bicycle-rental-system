@@ -109,6 +109,17 @@ CREATE TABLE IF NOT EXISTS notifications (
     FOREIGN KEY (rental_id)  REFERENCES rentals(rental_id)   ON DELETE SET NULL
 );
 
+-- ------------------------------------------------------------
+-- High-Performance Indexes for Instant Queries
+-- ------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_bicycles_status ON bicycles (status);
+CREATE INDEX IF NOT EXISTS idx_bicycles_station_status ON bicycles (station_id, status);
+CREATE INDEX IF NOT EXISTS idx_rentals_status_due ON rentals (status, due_at);
+CREATE INDEX IF NOT EXISTS idx_rentals_student_status ON rentals (student_id, status);
+CREATE INDEX IF NOT EXISTS idx_reservations_status_expires ON reservations (status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_reservations_student_status ON reservations (student_id, status);
+CREATE INDEX IF NOT EXISTS idx_notifications_student_status ON notifications (student_id, status);
+
 -- ============================================================
 -- SAMPLE DATA
 -- (none — add real data through the admin portal)

@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin Dashboard & Control Center – CampusCycle</title>
   <meta name="description" content="CampusCycle administration overview – live fleet metrics, staff management, student directory, and notification broadcasting." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
   <style>
     .grid-admin-stats {
@@ -493,7 +496,10 @@
                 <td>
                   {% if sm.staff_id != session.staff_id %}
                     <button type="button" class="btn btn-outline-danger btn-sm" style="padding:4px 10px; font-size:0.78rem;"
-                            onclick="openDeleteStaffModal({{ sm.staff_id }}, '{{ sm.name | escape }}', '{{ sm.role }}')">
+                            data-id="{{ sm.staff_id }}"
+                            data-name="{{ sm.name }}"
+                            data-role="{{ sm.role }}"
+                            onclick="openDeleteStaffModal(this.dataset.id, this.dataset.name, this.dataset.role)">
                       Remove
                     </button>
                   {% else %}
@@ -554,11 +560,16 @@
                 <td>
                   <div class="flex gap-6">
                     <button type="button" class="btn btn-ghost btn-sm" style="padding:4px 8px; font-size:0.78rem;" title="Send notification to this student"
-                            onclick="openNotifyStudentModal({{ s.student_id }}, '{{ s.name | escape }}')">
+                            data-id="{{ s.student_id }}"
+                            data-name="{{ s.name }}"
+                            onclick="openNotifyStudentModal(this.dataset.id, this.dataset.name)">
                       ✉️ Notice
                     </button>
                     <button type="button" class="btn btn-outline-danger btn-sm" style="padding:4px 8px; font-size:0.78rem;" title="Delete student record"
-                            onclick="openDeleteStudentModal({{ s.student_id }}, '{{ s.name | escape }}', {{ s.active_rentals_cnt }})">
+                            data-id="{{ s.student_id }}"
+                            data-name="{{ s.name }}"
+                            data-rentals="{{ s.active_rentals_cnt }}"
+                            onclick="openDeleteStudentModal(this.dataset.id, this.dataset.name, parseInt(this.dataset.rentals, 10))">
                       🗑️
                     </button>
                   </div>

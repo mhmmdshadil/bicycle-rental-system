@@ -4,11 +4,13 @@ Flask backend with full authentication, session management, and route protection
 """
 
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+import time
+import threading
+from flask import Flask, render_template, request, redirect, url_for, flash, session, g, has_request_context
 from functools import wraps
 from werkzeug.security import check_password_hash, generate_password_hash
 import mysql.connector
-from mysql.connector import Error
+from mysql.connector import Error, pooling
 from datetime import datetime, timedelta
 import re
 
@@ -17,8 +19,9 @@ import re
 # ─────────────────────────────────────────
 app = Flask(__name__)
 app.secret_key = "bicycle_rental_secret_key"
+
 # ─────────────────────────────────────────
-# Database Configuration
+# Database Configuration & Connection Pool
 # ─────────────────────────────────────────
 DB_CONFIG = {
     "host":     os.environ.get("DB_HOST", "localhost"),
@@ -29,30 +32,94 @@ DB_CONFIG = {
     "charset":  "utf8mb4",
 }
 
+db_pool = None
+try:
+    _pool_cfg = dict(DB_CONFIG)
+    if os.environ.get("DB_SSL", "").lower() in ("true", "1", "yes"):
+        _pool_cfg["ssl_disabled"] = False
+        _pool_cfg["ssl_verify_cert"] = False
+        _pool_cfg["ssl_verify_identity"] = False
+    db_pool = pooling.MySQLConnectionPool(
+        pool_name="campuscycle_pool",
+        pool_size=10,
+        pool_reset_session=True,
+        **_pool_cfg
+    )
+    print("[DB POOL] Initialized connection pool (size=10).")
+except Exception as _e:
+    print(f"[DB POOL WARNING] {_e}. Falling back to standard connections.")
+    db_pool = None
+
 
 def get_db_connection():
-    """Return a fresh MySQL connection, or None on failure."""
-    try:
-        config = dict(DB_CONFIG)
-        if os.environ.get("DB_SSL", "").lower() in ("true", "1", "yes"):
-            config["ssl_disabled"] = False
-            config["ssl_verify_cert"] = False
-            config["ssl_verify_identity"] = False
-        conn = mysql.connector.connect(**config)
-        return conn
-    except Error as e:
-        print(f"[DB ERROR] {e}")
-        return None
+    """
+    Return a MySQL connection.
+    If inside a Flask request, reuse the connection cached on `flask.g`
+    to eliminate redundant TCP/SSL handshakes.
+    """
+    if has_request_context():
+        if hasattr(g, "_db_conn") and g._db_conn is not None:
+            try:
+                if g._db_conn.is_connected():
+                    return g._db_conn
+            except Exception:
+                g._db_conn = None
+
+    conn = None
+    if db_pool:
+        try:
+            conn = db_pool.get_connection()
+        except Exception as e:
+            conn = None
+
+    if conn is None:
+        try:
+            config = dict(DB_CONFIG)
+            if os.environ.get("DB_SSL", "").lower() in ("true", "1", "yes"):
+                config["ssl_disabled"] = False
+                config["ssl_verify_cert"] = False
+                config["ssl_verify_identity"] = False
+            conn = mysql.connector.connect(**config)
+        except Error as e:
+            print(f"[DB ERROR] {e}")
+            return None
+
+    if has_request_context():
+        g._db_conn = conn
+    return conn
+
+
+@app.teardown_appcontext
+def teardown_db(exception=None):
+    """Clean up request-scoped database connection at the end of each request."""
+    conn = getattr(g, "_db_conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.after_request
+def add_performance_headers(response):
+    """Cache static assets aggressively and add performance/security headers."""
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        response.headers["Cache-Control"] = "no-cache, private"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def query(sql, params=None, fetch="all"):
     """
     Utility: run a SELECT query and return rows.
-    fetch='all' → list of dicts | fetch='one' → single dict | fetch=None → rowcount
+    Reuses request-scoped connection; closes cursor immediately.
     """
     conn = get_db_connection()
     if conn is None:
         return [] if fetch == "all" else None
+    cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(sql, params or ())
@@ -67,8 +134,16 @@ def query(sql, params=None, fetch="all"):
         print(f"[QUERY ERROR] {e}")
         return [] if fetch == "all" else None
     finally:
-        cursor.close()
-        conn.close()
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if not has_request_context() and conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def execute(sql, params=None):
@@ -76,6 +151,7 @@ def execute(sql, params=None):
     conn = get_db_connection()
     if conn is None:
         return False
+    cursor = None
     try:
         cursor = conn.cursor()
         cursor.execute(sql, params or ())
@@ -83,11 +159,22 @@ def execute(sql, params=None):
         return cursor.lastrowid or True
     except Error as e:
         print(f"[EXECUTE ERROR] {e}")
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         return False
     finally:
-        cursor.close()
-        conn.close()
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if not has_request_context() and conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -137,68 +224,94 @@ def create_notification(student_id, title, message, notification_type="info", re
     except Exception as e:
         print(f"[NOTIFICATION ERROR] {e}")
 
-def auto_sync_status():
+_last_sync_time = 0
+_sync_lock = threading.Lock()
+
+def auto_sync_status(force=False):
     """
     Automatically synchronize fleet status:
     1. Expire pending reservations past their 2-hour window and restore the bicycles to 'available'.
     2. Mark active rentals past their due date as 'overdue' and send alert notifications.
+    Debounced: runs at most once every 120 seconds unless force=True.
     """
-    try:
-        # 1. Expire stale reservations
-        expired_res = query("""
-            SELECT res.reservation_id, res.student_id, b.model
-            FROM reservations res
-            JOIN bicycles b ON res.bicycle_id = b.bicycle_id
-            WHERE res.status IN ('pending', 'confirmed') AND res.expires_at < NOW()
-        """)
-        for r in expired_res or []:
-            create_notification(
-                r["student_id"],
-                "Reservation Expired",
-                f"Your 2-hour hold on '{r['model']}' has expired and the bicycle has been released.",
-                "warning"
-            )
+    global _last_sync_time
+    now_ts = time.time()
+    if not force and (now_ts - _last_sync_time < 120):
+        return
 
-        execute("""
-            UPDATE bicycles b
-            JOIN reservations r ON b.bicycle_id = r.bicycle_id
-            SET b.status = 'available'
-            WHERE r.status IN ('pending', 'confirmed') AND r.expires_at < NOW() AND b.status = 'reserved'
-        """)
-        execute("""
-            UPDATE reservations
-            SET status = 'cancelled'
-            WHERE status IN ('pending', 'confirmed') AND expires_at < NOW()
-        """)
+    with _sync_lock:
+        if not force and (time.time() - _last_sync_time < 120):
+            return
+        _last_sync_time = time.time()
 
-        # 2. Overdue rentals alert
-        overdue_rentals = query("""
-            SELECT r.rental_id, r.student_id, b.model
-            FROM rentals r
-            JOIN bicycles b ON r.bicycle_id = b.bicycle_id
-            WHERE r.status = 'active' AND r.due_at < NOW()
-        """)
-        for ov in overdue_rentals or []:
-            existing_alert = query(
-                "SELECT notification_id FROM notifications WHERE rental_id = %s AND notification_type = 'alert'",
-                (ov["rental_id"],), fetch="one"
-            )
-            if not existing_alert:
+        try:
+            # 1. Expire stale reservations
+            expired_res = query("""
+                SELECT res.reservation_id, res.student_id, b.model
+                FROM reservations res
+                JOIN bicycles b ON res.bicycle_id = b.bicycle_id
+                WHERE res.status IN ('pending', 'confirmed') AND res.expires_at < NOW()
+            """)
+            for r in expired_res or []:
                 create_notification(
-                    ov["student_id"],
-                    "Rental Overdue ⚠️",
-                    f"Your rental for '{ov['model']}' is overdue. Please return it to any station as soon as possible.",
-                    "alert",
-                    rental_id=ov["rental_id"]
+                    r["student_id"],
+                    "Reservation Expired",
+                    f"Your 2-hour hold on '{r['model']}' has expired and the bicycle has been released.",
+                    "warning"
                 )
 
-        execute("""
-            UPDATE rentals
-            SET status = 'overdue'
-            WHERE status = 'active' AND due_at < NOW()
-        """)
-    except Exception as e:
-        print(f"[AUTO-SYNC] {e}")
+            execute("""
+                UPDATE bicycles b
+                JOIN reservations r ON b.bicycle_id = r.bicycle_id
+                SET b.status = 'available'
+                WHERE r.status IN ('pending', 'confirmed') AND r.expires_at < NOW() AND b.status = 'reserved'
+            """)
+            execute("""
+                UPDATE reservations
+                SET status = 'cancelled'
+                WHERE status IN ('pending', 'confirmed') AND expires_at < NOW()
+            """)
+
+            # 2. Overdue rentals alert - single batch insert rather than loop of queries
+            execute("""
+                INSERT INTO notifications (student_id, rental_id, title, message, notification_type, status)
+                SELECT r.student_id, r.rental_id, 'Rental Overdue ⚠️',
+                       CONCAT('Your rental for \'', b.model, '\' is overdue. Please return it to any station as soon as possible.'),
+                       'alert', 'unread'
+                FROM rentals r
+                JOIN bicycles b ON r.bicycle_id = b.bicycle_id
+                WHERE r.status = 'active' AND r.due_at < NOW()
+                  AND NOT EXISTS (
+                      SELECT 1 FROM notifications n
+                      WHERE n.rental_id = r.rental_id AND n.notification_type = 'alert'
+                  )
+            """)
+
+            execute("""
+                UPDATE rentals
+                SET status = 'overdue'
+                WHERE status = 'active' AND due_at < NOW()
+            """)
+        except Exception as e:
+            print(f"[AUTO-SYNC] {e}")
+
+
+def ensure_indexes():
+    """Ensure database indexes exist for blazing performance."""
+    indexes = [
+        ("idx_bicycles_status", "bicycles", "(status)"),
+        ("idx_bicycles_station_status", "bicycles", "(station_id, status)"),
+        ("idx_rentals_status_due", "rentals", "(status, due_at)"),
+        ("idx_rentals_student_status", "rentals", "(student_id, status)"),
+        ("idx_reservations_status_expires", "reservations", "(status, expires_at)"),
+        ("idx_reservations_student_status", "reservations", "(student_id, status)"),
+        ("idx_notifications_student_status", "notifications", "(student_id, status)"),
+    ]
+    for idx_name, table, cols in indexes:
+        try:
+            execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} {cols}")
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -673,17 +786,18 @@ def mark_all_notifications_read():
 def admin_dashboard():
     """Admin Dashboard – KPI cards, staff team, student directory, notifications, and recent activity."""
     auto_sync_status()
-    total_stations   = query("SELECT COUNT(*) AS cnt FROM stations", fetch="one")
-    total_bikes      = query("SELECT COUNT(*) AS cnt FROM bicycles", fetch="one")
-    available_bikes  = query("SELECT COUNT(*) AS cnt FROM bicycles WHERE status='available'", fetch="one")
-    active_rentals   = query("SELECT COUNT(*) AS cnt FROM rentals WHERE status='active'", fetch="one")
-    overdue_rentals  = query("SELECT COUNT(*) AS cnt FROM rentals WHERE status='overdue'", fetch="one")
-    total_students   = query("SELECT COUNT(*) AS cnt FROM students", fetch="one")
-    total_staff      = query("SELECT COUNT(*) AS cnt FROM staff", fetch="one")
-    total_notifs     = query("SELECT COUNT(*) AS cnt FROM notifications", fetch="one")
-    pending_res      = query(
-        "SELECT COUNT(*) AS cnt FROM reservations WHERE status IN ('pending', 'confirmed')", fetch="one"
-    )
+    kpis = query("""
+        SELECT
+            (SELECT COUNT(*) FROM stations) AS total_stations,
+            (SELECT COUNT(*) FROM bicycles) AS total_bikes,
+            (SELECT COUNT(*) FROM bicycles WHERE status='available') AS available_bikes,
+            (SELECT COUNT(*) FROM rentals WHERE status='active') AS active_rentals,
+            (SELECT COUNT(*) FROM rentals WHERE status='overdue') AS overdue_rentals,
+            (SELECT COUNT(*) FROM students) AS total_students,
+            (SELECT COUNT(*) FROM staff) AS total_staff,
+            (SELECT COUNT(*) FROM notifications) AS total_notifications,
+            (SELECT COUNT(*) FROM reservations WHERE status IN ('pending', 'confirmed')) AS pending_reservations
+    """, fetch="one") or {}
 
     recent_rentals_list = query(
         """SELECT r.rental_id, 'rental' AS record_type, r.issued_at, r.status,
@@ -731,15 +845,15 @@ def admin_dashboard():
 
     return render_template(
         "admin_dashboard.html",
-        total_stations       = total_stations["cnt"]  if total_stations  else 0,
-        total_bikes          = total_bikes["cnt"]      if total_bikes     else 0,
-        available_bikes      = available_bikes["cnt"]  if available_bikes else 0,
-        active_rentals       = active_rentals["cnt"]   if active_rentals  else 0,
-        overdue_rentals      = overdue_rentals["cnt"]  if overdue_rentals else 0,
-        total_students       = total_students["cnt"]   if total_students  else 0,
-        total_staff          = total_staff["cnt"]      if total_staff     else 0,
-        total_notifications  = total_notifs["cnt"]     if total_notifs    else 0,
-        pending_reservations = pending_res["cnt"]      if pending_res     else 0,
+        total_stations       = kpis.get("total_stations") or 0,
+        total_bikes          = kpis.get("total_bikes") or 0,
+        available_bikes      = kpis.get("available_bikes") or 0,
+        active_rentals       = kpis.get("active_rentals") or 0,
+        overdue_rentals      = kpis.get("overdue_rentals") or 0,
+        total_students       = kpis.get("total_students") or 0,
+        total_staff          = kpis.get("total_staff") or 0,
+        total_notifications  = kpis.get("total_notifications") or 0,
+        pending_reservations = kpis.get("pending_reservations") or 0,
         recent_rentals       = recent_activity[:8],
         staff_members        = staff_members,
         students_list        = students_list,
@@ -1309,7 +1423,7 @@ def cancel_reservation_admin(reservation_id):
 @admin_required
 def sync_overdue():
     """Mark active rentals past their due date as overdue."""
-    auto_sync_status()
+    auto_sync_status(force=True)
     flash("Fleet synchronization and overdue check complete. ✅", "success")
     return redirect(url_for("admin_dashboard"))
 
@@ -1318,4 +1432,5 @@ def sync_overdue():
 # Entry Point
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    ensure_indexes()
     app.run(debug=True, port=5000)

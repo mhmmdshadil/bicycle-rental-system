@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Manage Stations & Fleet – CampusCycle Admin</title>
   <meta name="description" content="Add and manage campus docking stations, bicycle inventory, capacity, and operational status." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
   <style>
     .status-select {
@@ -320,8 +323,9 @@
 
           <!-- Occupancy Progress bar -->
           {% set occ = (st.total / st.capacity * 100) | int if st.capacity > 0 else 0 %}
+          {% set occ_color = 'var(--danger)' if occ >= 90 else ('var(--warning)' if occ >= 70 else 'var(--primary)') %}
           <div class="progress-bar">
-            <div class="progress-fill" style="width: {{ occ }}%; background: {% if occ >= 90 %}var(--danger){% elif occ >= 70 %}var(--warning){% else %}var(--primary){% endif %};"></div>
+            <div class="progress-fill" {{ ('style="width: ' ~ occ ~ '%; background: ' ~ occ_color ~ ';"') | safe }}></div>
           </div>
 
           <div class="flex-between mt-8" style="font-size: 0.82rem; color: var(--text-light);">
@@ -344,11 +348,18 @@
         <!-- Station Management Controls -->
         <div class="station-actions flex-between">
           <button type="button" class="btn btn-ghost btn-sm"
-                  onclick="openEditStationModal({{ st.station_id }}, '{{ st.name | escape }}', '{{ st.location | escape }}', {{ st.capacity }})">
+                  data-id="{{ st.station_id }}"
+                  data-name="{{ st.name }}"
+                  data-location="{{ st.location }}"
+                  data-capacity="{{ st.capacity }}"
+                  onclick="openEditStationModal(this.dataset.id, this.dataset.name, this.dataset.location, this.dataset.capacity)">
             ✏️ Edit
           </button>
           <button type="button" class="btn btn-outline-danger btn-sm"
-                  onclick="openDeleteStationModal({{ st.station_id }}, '{{ st.name | escape }}', {{ st.total }})">
+                  data-id="{{ st.station_id }}"
+                  data-name="{{ st.name }}"
+                  data-total="{{ st.total }}"
+                  onclick="openDeleteStationModal(this.dataset.id, this.dataset.name, parseInt(this.dataset.total, 10))">
             🗑️ Delete
           </button>
         </div>
@@ -424,11 +435,19 @@
               <td>
                 <div class="table-actions">
                   <button type="button" class="btn btn-ghost btn-sm" style="padding:5px 9px;" title="Edit bicycle"
-                          onclick="openEditBikeModal({{ b.bicycle_id }}, '{{ b.model | escape }}', '{{ b.type }}', {{ b.station_id }}, '{{ b.status }}')">
+                          data-id="{{ b.bicycle_id }}"
+                          data-model="{{ b.model }}"
+                          data-type="{{ b.type }}"
+                          data-station="{{ b.station_id }}"
+                          data-status="{{ b.status }}"
+                          onclick="openEditBikeModal(this.dataset.id, this.dataset.model, this.dataset.type, this.dataset.station, this.dataset.status)">
                     ✏️
                   </button>
                   <button type="button" class="btn btn-outline-danger btn-sm" style="padding:5px 9px;" title="Delete bicycle"
-                          onclick="openDeleteBikeModal({{ b.bicycle_id }}, '{{ b.model | escape }}', '{{ b.status }}')">
+                          data-id="{{ b.bicycle_id }}"
+                          data-model="{{ b.model }}"
+                          data-status="{{ b.status }}"
+                          onclick="openDeleteBikeModal(this.dataset.id, this.dataset.model, this.dataset.status)">
                     🗑️
                   </button>
                 </div>
