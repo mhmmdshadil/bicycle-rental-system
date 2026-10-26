@@ -160,7 +160,10 @@
               </td>
               <td>
                 <div style="font-weight:600;">{{ r.model }}</div>
-                <small class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</small>
+                <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+                  <span style="font-size:0.75rem; color:var(--text-light); font-weight:600;">Bike #{{ r.bicycle_id }}</span>
+                  <small class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</small>
+                </div>
               </td>
               <td>📍 {{ r.station_name }}</td>
               <td>

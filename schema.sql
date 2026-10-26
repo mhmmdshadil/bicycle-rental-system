@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS students (
     password_hash VARCHAR(255) NOT NULL DEFAULT '',
     created_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ------------------------------------------------------------
+-- Table: staff
+-- System administrators and station management staff
+-- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS staff (
     staff_id      INT AUTO_INCREMENT PRIMARY KEY,
     name          VARCHAR(150) NOT NULL,
