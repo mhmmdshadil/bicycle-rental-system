@@ -214,8 +214,11 @@
            data-station-id="{{ st.station_id }}"
            onclick="selectStation('{{ st.station_id }}')"
            title="Click to view bicycles at {{ st.name }}">
-        <div class="flex-between mb-8">
-          <h3 style="font-size:.95rem;">{{ st.name }}</h3>
+        <div class="flex-between mb-8" style="align-items:flex-start; gap:8px;">
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <h3 style="font-size:.95rem; margin:0;">{{ st.name }}</h3>
+            <span class="badge" style="font-size:0.72rem; padding:1px 6px; background:rgba(0,0,0,0.05); color:var(--text-light); border:1px solid rgba(0,0,0,0.08); font-weight:600;">ID #{{ st.display_station_id if st.display_station_id is defined else st.station_id }}</span>
+          </div>
           <span class="badge badge-available">{{ st.available }} free</span>
         </div>
         <small style="color:var(--text-light);">📍 {{ st.location }}</small>
@@ -264,7 +267,7 @@
                 data-station-id="{{ st.station_id }}"
                 data-station-name="{{ st.name }}"
                 onclick="selectStation('{{ st.station_id }}')">
-          <span>📍 {{ st.name }}</span>
+          <span>📍 {{ st.name }} (ID #{{ st.display_station_id if st.display_station_id is defined else st.station_id }})</span>
           <span class="pill-badge">{{ st.available }}</span>
         </button>
         {% endfor %}
@@ -303,7 +306,9 @@
             <span class="badge badge-{{ bike.type }}">{{ bike.type | capitalize }}</span>
           </div>
         </div>
-        <div style="font-size:.85rem; color:var(--text-light); margin-top:8px;">📍 {{ bike.station_name }}</div>
+        <div style="font-size:.85rem; color:var(--text-light); margin-top:8px;">
+          📍 {{ bike.station_name }} <span class="badge" style="font-size:0.72rem; padding:1px 6px; background:rgba(0,0,0,0.05); color:var(--text-light); border:1px solid rgba(0,0,0,0.08); margin-left:4px;">Station #{{ bike.display_station_id if bike.display_station_id is defined else bike.station_id }}</span>
+        </div>
         <div style="font-size:.8rem; color:var(--text-light);">Bike #{{ bike.bicycle_id }}</div>
         
         <!-- Reserve Form (hidden, triggered by modal) -->
@@ -316,7 +321,8 @@
                 data-bike-id="{{ bike.bicycle_id }}"
                 data-model="{{ bike.model }}"
                 data-station="{{ bike.station_name }}"
-                onclick="openReserveModal(this.dataset.bikeId, this.dataset.model, this.dataset.station)">
+                data-station-display-id="{{ bike.display_station_id if bike.display_station_id is defined else bike.station_id }}"
+                onclick="openReserveModal(this.dataset.bikeId, this.dataset.model, this.dataset.station, this.dataset.stationDisplayId)">
           Reserve →
         </button>
       </div>
@@ -457,10 +463,11 @@
   }
 
   // Reservation Modal
-  function openReserveModal(bikeId, model, station) {
+  function openReserveModal(bikeId, model, station, stationId) {
     pendingFormId = 'reserve-form-' + bikeId;
+    const stationLabel = stationId ? `${station} (Station #${stationId})` : station;
     document.getElementById('reserve-modal-msg').textContent =
-      `Reserve ${model} at ${station}? You'll have 2 hours to pick it up.`;
+      `Reserve ${model} at ${stationLabel}? You'll have 2 hours to pick it up.`;
     document.getElementById('reserve-modal').classList.add('active');
   }
 

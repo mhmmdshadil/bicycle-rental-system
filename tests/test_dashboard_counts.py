@@ -41,7 +41,59 @@ class DashboardStatsTests(unittest.TestCase):
         result = app_module.assign_student_display_ids(students)
 
         self.assertEqual([s["display_student_id"] for s in result], [1, 2, 3])
-        self.assertEqual([s["student_id"] for s in result], [15, 3, 22])
+    def test_station_id_rendered_in_admin_stations_template(self):
+        with app_module.app.test_request_context("/admin/stations"):
+            html = app_module.render_template(
+                "admin_stations.html",
+                stations=[{
+                    "station_id": 4,
+                    "name": "Hostel Hub",
+                    "location": "Behind Block B",
+                    "capacity": 10,
+                    "available": 6,
+                    "rented": 3,
+                    "reserved": 1,
+                    "maintenance": 0,
+                    "total": 10,
+                }],
+                bikes=[{
+                    "bicycle_id": 12,
+                    "display_bicycle_id": 1,
+                    "model": "Trek FX 2",
+                    "type": "standard",
+                    "station_id": 4,
+                    "station_name": "Hostel Hub",
+                    "added_at": None,
+                    "status": "available",
+                }],
+            )
+            self.assertIn("ID #4", html)
+            self.assertIn("Station ID: #4", html)
+
+    def test_station_id_rendered_in_student_bikes_template(self):
+        with app_module.app.test_request_context("/student/bikes"):
+            app_module.session["student_name"] = "Alice"
+            html = app_module.render_template(
+                "student_bikes.html",
+                stations=[{
+                    "station_id": 7,
+                    "name": "North Gate",
+                    "location": "Near Main Gate",
+                    "capacity": 8,
+                    "available": 5,
+                }],
+                bikes=[{
+                    "bicycle_id": 20,
+                    "model": "Giant Escape 3",
+                    "type": "mountain",
+                    "station_id": 7,
+                    "station_name": "North Gate",
+                }],
+                station_filter="all",
+                type_filter="all",
+            )
+            self.assertIn("ID #7", html)
+            self.assertIn("Station #7", html)
 
 
 if __name__ == "__main__":

@@ -343,7 +343,13 @@ def ensure_indexes():
     ]
     for idx_name, table, cols in indexes:
         try:
-            execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} {cols}")
+            existing = query(
+                f"SHOW INDEX FROM {table} WHERE Key_name = %s",
+                (idx_name,),
+                fetch="one",
+            )
+            if not existing:
+                execute(f"CREATE INDEX {idx_name} ON {table} {cols}")
         except Exception:
             pass
 
@@ -427,6 +433,35 @@ def assign_display_ids(items, display_key):
 def assign_student_display_ids(students):
     """Add a sequential display ID that matches the registered-student order, independent of DB PK gaps."""
     return assign_display_ids(students, "display_student_id")
+
+
+def get_station_display_map():
+    """Build a mapping of db station_id to sequential 1-based display number according to existing stations."""
+    raw_stations = query("SELECT station_id FROM stations ORDER BY station_id ASC") or []
+    return {st["station_id"]: idx for idx, st in enumerate(raw_stations, start=1)}
+
+
+def assign_station_display_ids(stations_list, station_map=None):
+    """Assign display_station_id (1, 2, 3...) matching existing stations order."""
+    if station_map is None:
+        station_map = get_station_display_map()
+    ordered = list(stations_list or [])
+    for st in ordered:
+        s_id = st.get("station_id")
+        st["display_station_id"] = station_map.get(s_id, s_id)
+    return ordered
+
+
+def attach_station_display_id(items, station_map=None):
+    """Attach display_station_id to records (bikes, rentals, reservations) referencing a station."""
+    if station_map is None:
+        station_map = get_station_display_map()
+    ordered = list(items or [])
+    for it in ordered:
+        s_id = it.get("station_id")
+        if s_id is not None:
+            it["display_station_id"] = station_map.get(s_id, s_id)
+    return ordered
 
 
 def calculate_overdue_fine(due_at, now=None):
@@ -702,14 +737,20 @@ def student_bikes():
                ORDER BY s.name, b.type"""
         )
 
-    stations = query(
-        """SELECT s.station_id, s.name, s.location, s.capacity,
-                  SUM(CASE WHEN b.status = 'available' THEN 1 ELSE 0 END) AS available,
-                  COUNT(b.bicycle_id) AS total
-           FROM stations s
-           LEFT JOIN bicycles b ON s.station_id = b.station_id
-           GROUP BY s.station_id
-           ORDER BY s.name"""
+    st_map = get_station_display_map()
+    bikes = attach_station_display_id(bikes, st_map)
+
+    stations = assign_station_display_ids(
+        query(
+            """SELECT s.station_id, s.name, s.location, s.capacity,
+                      SUM(CASE WHEN b.status = 'available' THEN 1 ELSE 0 END) AS available,
+                      COUNT(b.bicycle_id) AS total
+               FROM stations s
+               LEFT JOIN bicycles b ON s.station_id = b.station_id
+               GROUP BY s.station_id
+               ORDER BY s.station_id ASC"""
+        ) or [],
+        st_map
     )
 
     return render_template(
@@ -863,7 +904,7 @@ def student_notifications():
             """SELECT r.rental_id, r.issued_at, r.due_at, r.returned_at, r.status, r.issued_by,
                       r.fine_amount, r.fine_paid, r.late_days,
                       b.bicycle_id, b.model, b.type,
-                      s.name AS station_name
+                      s.station_id, s.name AS station_name
                FROM rentals r
                JOIN bicycles b ON r.bicycle_id = b.bicycle_id
                JOIN stations s ON b.station_id = s.station_id
@@ -878,7 +919,7 @@ def student_notifications():
         query(
             """SELECT res.reservation_id, res.reserved_at, res.expires_at, res.status,
                       b.bicycle_id, b.model, b.type,
-                      s.name AS station_name
+                      s.station_id, s.name AS station_name
                FROM reservations res
                JOIN bicycles b ON res.bicycle_id = b.bicycle_id
                JOIN stations s ON res.station_id = s.station_id
@@ -888,6 +929,10 @@ def student_notifications():
         ) or [],
         "display_reservation_id",
     )
+
+    st_map = get_station_display_map()
+    rentals = attach_station_display_id(rentals, st_map)
+    reservations = attach_station_display_id(reservations, st_map)
 
     unread_count = sum(1 for n in notifications if n.get("status") == "unread")
     now = datetime.now()
@@ -1028,7 +1073,9 @@ def admin_dashboard():
            ORDER BY n.created_at DESC LIMIT 30"""
     ) or []
 
-    stations_list = query("SELECT station_id, name, capacity FROM stations ORDER BY name") or []
+    stations_list = assign_station_display_ids(
+        query("SELECT station_id, name, capacity FROM stations ORDER BY station_id ASC") or []
+    )
 
     return render_template(
         "admin_dashboard.html",
@@ -1054,27 +1101,34 @@ def admin_dashboard():
 def admin_stations():
     """Manage Stations & Bikes."""
     auto_sync_status()
-    stations = query(
-        """SELECT s.station_id, s.name, s.location, s.capacity,
-                  SUM(CASE WHEN b.status='available'   THEN 1 ELSE 0 END) AS available,
-                  SUM(CASE WHEN b.status='rented'      THEN 1 ELSE 0 END) AS rented,
-                  SUM(CASE WHEN b.status='reserved'    THEN 1 ELSE 0 END) AS reserved,
-                  SUM(CASE WHEN b.status='maintenance' THEN 1 ELSE 0 END) AS maintenance,
-                  COUNT(b.bicycle_id) AS total
-           FROM stations s
-           LEFT JOIN bicycles b ON s.station_id = b.station_id
-           GROUP BY s.station_id
-           ORDER BY s.name"""
-    ) or []
-    bikes = assign_display_ids(
+    st_map = get_station_display_map()
+    stations = assign_station_display_ids(
         query(
-            """SELECT b.bicycle_id, b.station_id, b.model, b.type, b.status, b.added_at,
-                      s.name AS station_name
-               FROM bicycles b
-               JOIN stations s ON b.station_id = s.station_id
-               ORDER BY b.added_at ASC, b.bicycle_id ASC"""
+            """SELECT s.station_id, s.name, s.location, s.capacity,
+                      SUM(CASE WHEN b.status='available'   THEN 1 ELSE 0 END) AS available,
+                      SUM(CASE WHEN b.status='rented'      THEN 1 ELSE 0 END) AS rented,
+                      SUM(CASE WHEN b.status='reserved'    THEN 1 ELSE 0 END) AS reserved,
+                      SUM(CASE WHEN b.status='maintenance' THEN 1 ELSE 0 END) AS maintenance,
+                      COUNT(b.bicycle_id) AS total
+               FROM stations s
+               LEFT JOIN bicycles b ON s.station_id = b.station_id
+               GROUP BY s.station_id
+               ORDER BY s.station_id ASC"""
         ) or [],
-        "display_bicycle_id",
+        st_map
+    )
+    bikes = attach_station_display_id(
+        assign_display_ids(
+            query(
+                """SELECT b.bicycle_id, b.station_id, b.model, b.type, b.status, b.added_at,
+                          s.name AS station_name
+                   FROM bicycles b
+                   JOIN stations s ON b.station_id = s.station_id
+                   ORDER BY b.added_at ASC, b.bicycle_id ASC"""
+            ) or [],
+            "display_bicycle_id",
+        ),
+        st_map
     )
     return render_template("admin_stations.html", stations=stations, bikes=bikes)
 
@@ -1465,7 +1519,7 @@ def admin_fines():
                r.status, r.fine_amount, r.fine_paid, r.fine_paid_at, r.late_days,
                st.name AS student_name, st.roll_number, st.email,
                b.model, b.type,
-               s.name AS station_name
+               s.station_id, s.name AS station_name
         FROM rentals r
         JOIN students st ON r.student_id = st.student_id
         JOIN bicycles  b  ON r.bicycle_id  = b.bicycle_id
@@ -1492,6 +1546,8 @@ def admin_fines():
     """, fetch="one") or {}
 
     now = datetime.now()
+    st_map = get_station_display_map()
+    fines = attach_station_display_id(fines, st_map)
     return render_template(
         "admin_fines.html",
         fines=fines,
@@ -1517,7 +1573,7 @@ def admin_rentals():
                r.fine_amount, r.fine_paid, r.late_days,
                st.name AS student_name, st.roll_number, st.email,
                b.bicycle_id, b.model, b.type,
-               s.name AS station_name
+               s.station_id, s.name AS station_name
         FROM rentals r
         JOIN students st ON r.student_id = st.student_id
         JOIN bicycles b  ON r.bicycle_id  = b.bicycle_id
@@ -1534,7 +1590,7 @@ def admin_rentals():
                0.00 AS fine_amount, 0 AS fine_paid, 0 AS late_days,
                st.name AS student_name, st.roll_number, st.email,
                b.bicycle_id, b.model, b.type,
-               s.name AS station_name
+               s.station_id, s.name AS station_name
         FROM reservations res
         JOIN students st ON res.student_id = st.student_id
         JOIN bicycles b  ON res.bicycle_id  = b.bicycle_id
@@ -1551,6 +1607,9 @@ def admin_rentals():
         records = rentals_all + reservations_all
         records.sort(key=lambda x: x["issued_at"] or datetime.min, reverse=True)
         records = assign_display_ids(records, "display_record_id")
+
+    st_map = get_station_display_map()
+    records = attach_station_display_id(records, st_map)
 
     res_count = query(
         "SELECT COUNT(*) AS cnt FROM reservations WHERE status IN ('pending', 'confirmed')", fetch="one"

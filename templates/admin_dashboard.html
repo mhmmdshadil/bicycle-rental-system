@@ -123,7 +123,7 @@
         <label class="form-label" for="dash-bike-station">Select Station *</label>
         <select id="dash-bike-station" name="station_id" class="form-input" required>
           {% for st in stations_list %}
-            <option value="{{ st.station_id }}">{{ st.name }} (Capacity: {{ st.capacity }})</option>
+            <option value="{{ st.station_id }}">#{{ st.display_station_id if st.display_station_id is defined else st.station_id }} - {{ st.name }} (Capacity: {{ st.capacity }})</option>
           {% endfor %}
         </select>
       </div>

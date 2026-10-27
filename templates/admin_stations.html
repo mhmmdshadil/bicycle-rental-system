@@ -127,6 +127,10 @@
     <form method="post" action="{{ url_for('edit_station') }}">
       <input type="hidden" id="edit-st-id" name="station_id" />
       <div class="form-group">
+        <label class="form-label" for="edit-st-id-display">Station ID</label>
+        <input type="text" id="edit-st-id-display" class="form-input" readonly style="background:var(--bg-subtle, #f8fafc); cursor:not-allowed; font-weight:600; color:var(--text-light);" />
+      </div>
+      <div class="form-group">
         <label class="form-label" for="edit-st-name">Station Name *</label>
         <input type="text" id="edit-st-name" name="name" class="form-input" required />
       </div>
@@ -177,7 +181,7 @@
         <select id="add-bike-station" name="station_id" class="form-input" required>
           {% for st in stations %}
             <option value="{{ st.station_id }}">
-              {{ st.name }} ({{ st.total }}/{{ st.capacity }} occupied - {{ st.capacity - st.total }} slots free)
+              #{{ st.display_station_id if st.display_station_id is defined else st.station_id }} - {{ st.name }} ({{ st.total }}/{{ st.capacity }} occupied - {{ st.capacity - st.total }} slots free)
             </option>
           {% endfor %}
         </select>
@@ -234,7 +238,7 @@
         <label class="form-label" for="edit-bike-station">Current Docking Station *</label>
         <select id="edit-bike-station" name="station_id" class="form-input" required>
           {% for st in stations %}
-            <option value="{{ st.station_id }}">{{ st.name }} (Capacity: {{ st.capacity }})</option>
+            <option value="{{ st.station_id }}">#{{ st.display_station_id if st.display_station_id is defined else st.station_id }} - {{ st.name }} (Capacity: {{ st.capacity }})</option>
           {% endfor %}
         </select>
       </div>
@@ -318,8 +322,13 @@
       {% for st in stations %}
       <div class="card flex" style="flex-direction:column; justify-content:space-between;">
         <div>
-          <div class="flex-between mb-8">
-            <h3 style="font-size: 1.1rem;">{{ st.name }}</h3>
+          <div class="flex-between mb-8" style="align-items:flex-start; gap:8px;">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <h3 style="font-size: 1.1rem; margin:0;">{{ st.name }}</h3>
+                <span class="badge" style="background:#eef2f6; color:#334155; border:1px solid #cbd5e1; font-weight:600; font-size:0.75rem; padding:2px 8px;">ID #{{ st.display_station_id if st.display_station_id is defined else st.station_id }}</span>
+              </div>
+            </div>
             <span class="badge badge-available">{{ st.available }} Avail</span>
           </div>
           <p style="font-size:0.85rem; color:var(--text-light); margin-bottom:14px;">📍 {{ st.location }}</p>
@@ -352,17 +361,19 @@
         <div class="station-actions flex-between">
           <button type="button" class="btn btn-ghost btn-sm"
                   data-id="{{ st.station_id }}"
+                  data-display-id="{{ st.display_station_id if st.display_station_id is defined else st.station_id }}"
                   data-name="{{ st.name }}"
                   data-location="{{ st.location }}"
                   data-capacity="{{ st.capacity }}"
-                  onclick="openEditStationModal(this.dataset.id, this.dataset.name, this.dataset.location, this.dataset.capacity)">
+                  onclick="openEditStationModal(this.dataset.id, this.dataset.name, this.dataset.location, this.dataset.capacity, this.dataset.displayId)">
             ✏️ Edit
           </button>
           <button type="button" class="btn btn-outline-danger btn-sm"
                   data-id="{{ st.station_id }}"
+                  data-display-id="{{ st.display_station_id if st.display_station_id is defined else st.station_id }}"
                   data-name="{{ st.name }}"
                   data-total="{{ st.total }}"
-                  onclick="openDeleteStationModal(this.dataset.id, this.dataset.name, parseInt(this.dataset.total, 10))">
+                  onclick="openDeleteStationModal(this.dataset.id, this.dataset.name, parseInt(this.dataset.total, 10), this.dataset.displayId)">
             🗑️ Delete
           </button>
         </div>
@@ -388,10 +399,10 @@
           <p style="font-size: 0.88rem;">Manage bicycle assets, reassign station homes, and change operational status.</p>
         </div>
         <div class="flex gap-12" style="align-items:center; flex-wrap:wrap;">
-          <select id="admin-station-filter" class="form-input" style="max-width:180px;" onchange="filterBikeTable()">
+          <select id="admin-station-filter" class="form-input" style="max-width:200px;" onchange="filterBikeTable()">
             <option value="all">📍 All Stations</option>
             {% for st in stations %}
-              <option value="{{ st.station_id }}">{{ st.name }}</option>
+              <option value="{{ st.station_id }}">📍 #{{ st.display_station_id if st.display_station_id is defined else st.station_id }} - {{ st.name }}</option>
             {% endfor %}
           </select>
           <select id="admin-status-filter" class="form-input" style="max-width:150px;" onchange="filterBikeTable()">
@@ -429,7 +440,10 @@
               <td><strong>#{{ b.display_bicycle_id if b.display_bicycle_id is defined else b.bicycle_id }}</strong></td>
               <td><strong>{{ b.model }}</strong></td>
               <td><span class="badge badge-{{ b.type }}">{{ b.type | capitalize }}</span></td>
-              <td>📍 {{ b.station_name }}</td>
+              <td>
+                <div>📍 {{ b.station_name }}</div>
+                <div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">Station ID: #{{ b.display_station_id if b.display_station_id is defined else b.station_id }}</div>
+              </td>
               <td>{{ b.added_at.strftime('%b %d, %Y') if b.added_at else '—' }}</td>
               <td>
                 <span class="badge badge-{{ b.status }}">{{ b.status | capitalize }}</span>
@@ -498,8 +512,10 @@
   }
 
   // Edit Station window handler
-  function openEditStationModal(id, name, location, capacity) {
+  function openEditStationModal(id, name, location, capacity, displayId) {
     document.getElementById('edit-st-id').value = id;
+    const idDisplay = document.getElementById('edit-st-id-display');
+    if (idDisplay) idDisplay.value = 'Station #' + (displayId || id);
     document.getElementById('edit-st-name').value = name;
     document.getElementById('edit-st-loc').value = location;
     document.getElementById('edit-st-cap').value = capacity;
@@ -507,15 +523,16 @@
   }
 
   // Delete Station window handler
-  function openDeleteStationModal(id, name, totalBikes) {
+  function openDeleteStationModal(id, name, totalBikes, displayId) {
     const form = document.getElementById('delete-station-form');
     form.action = '/admin/stations/delete/' + id;
     const msg = document.getElementById('delete-station-msg');
+    const shownId = displayId || id;
     if (totalBikes > 0) {
-      msg.innerHTML = `⚠️ Station <strong>${name}</strong> currently has <strong>${totalBikes} bicycle(s)</strong> docked. You must reassign or remove all bicycles before deleting this station.`;
+      msg.innerHTML = `⚠️ Station <strong>#${shownId} - ${name}</strong> currently has <strong>${totalBikes} bicycle(s)</strong> docked. You must reassign or remove all bicycles before deleting this station.`;
       document.getElementById('confirm-delete-station-btn').disabled = true;
     } else {
-      msg.innerHTML = `Are you sure you want to permanently delete station <strong>${name}</strong>?`;
+      msg.innerHTML = `Are you sure you want to permanently delete station <strong>#${shownId} - ${name}</strong>?`;
       document.getElementById('confirm-delete-station-btn').disabled = false;
     }
     openModal('delete-station-modal');

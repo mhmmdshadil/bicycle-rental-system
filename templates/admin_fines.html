@@ -200,7 +200,12 @@
                 <div style="font-weight:600;">{{ f.model }}</div>
                 <small class="badge badge-{{ f.type }}">{{ f.type | capitalize }}</small>
               </td>
-              <td>📍 {{ f.station_name }}</td>
+              <td>
+                <div>📍 {{ f.station_name }}</div>
+                {% if f.station_id %}
+                  <div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">Station ID: #{{ f.display_station_id if f.display_station_id is defined else f.station_id }}</div>
+                {% endif %}
+              </td>
               <td>
                 <span class="{% if f.status == 'overdue' %}text-danger{% endif %}" style="font-weight:600;">
                   {{ f.due_at.strftime('%b %d, %Y %I:%M %p') if f.due_at else '—' }}

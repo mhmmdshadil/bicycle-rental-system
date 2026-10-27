@@ -165,7 +165,12 @@
                   <small class="badge badge-{{ r.type }}">{{ r.type | capitalize }}</small>
                 </div>
               </td>
-              <td>📍 {{ r.station_name }}</td>
+              <td>
+                <div>📍 {{ r.station_name }}</div>
+                {% if r.station_id %}
+                  <div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">Station ID: #{{ r.display_station_id if r.display_station_id is defined else r.station_id }}</div>
+                {% endif %}
+              </td>
               <td>
                 {{ r.issued_at.strftime('%b %d, %Y %I:%M %p') if r.issued_at else '—' }}
               </td>
